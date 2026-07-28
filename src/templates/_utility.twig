@@ -1,0 +1,121 @@
+<h2>{{ 'Stripe Reconciler'|t('stripe-reconciler') }}</h2>
+
+<div class="sr-summary">
+    {% if candidates|length %}
+        <p>
+            {{ 'Stripe has {count} payment(s) that never finished in Commerce. Nothing below has been checked against Stripe yet: use the buttons to do that.'|t('stripe-reconciler', { count: candidates|length }) }}
+        </p>
+        {% if canReconcile %}
+            <button type="button" class="btn submit" data-sr-check-all>
+                {{ 'Check them all'|t('stripe-reconciler') }}
+            </button>
+            <p class="light">
+                {{ 'Checking only asks Stripe what happened. Nothing is completed until you say so on the order itself.'|t('stripe-reconciler') }}
+            </p>
+        {% else %}
+            <p class="light">
+                {{ 'You do not have permission to reconcile payments.'|t('stripe-reconciler') }}
+            </p>
+        {% endif %}
+    {% elseif not hasGateway %}
+        <p class="zilch small error">
+            {{ 'No Stripe gateway is available to check. Add one in Commerce, or widen the enabledGateways setting if it is restricting things.'|t('stripe-reconciler') }}
+        </p>
+    {% else %}
+        <p class="zilch small">
+            {{ 'Nothing outstanding. Every Stripe payment in the last {days} day(s) is accounted for.'|t('stripe-reconciler', { days: settings.lookbackDays }) }}
+        </p>
+    {% endif %}
+</div>
+
+{% if candidates|length %}
+    <div class="sr-scroll">
+    <table class="data fullwidth sr-table">
+        <thead>
+            <tr>
+                <th scope="col">{{ 'Order'|t('stripe-reconciler') }}</th>
+                <th scope="col">{{ 'Situation'|t('stripe-reconciler') }}</th>
+                <th scope="col">{{ 'Customer'|t('stripe-reconciler') }}</th>
+                <th scope="col">{{ 'Total'|t('stripe-reconciler') }}</th>
+                <th scope="col">{{ 'Status'|t('stripe-reconciler') }}</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for candidate in candidates %}
+                {% set order = candidate.order %}
+                <tr>
+                    <td>
+                        {% if order %}
+                            <a href="{{ order.cpEditUrl }}">{{ candidate.getLabel() }}</a>
+                        {% else %}
+                            {{ candidate.getLabel() }}
+                        {% endif %}
+                    </td>
+                    <td>{{ candidate.type.label() }}</td>
+                    <td>{{ order.email ?? '-' }}</td>
+                    <td>{{ order ? order.totalPrice|commerceCurrency(order.paymentCurrency) : '-' }}</td>
+                    <td data-status>
+                        {% if canReconcile %}
+                            <button type="button" class="btn small" data-sr-check data-order-id="{{ candidate.orderId }}">
+                                {{ 'Check Stripe'|t('stripe-reconciler') }}
+                            </button>
+                        {% else %}
+                            <span class="light">{{ 'Not checked'|t('stripe-reconciler') }}</span>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+{% endif %}
+
+{% if history|length %}
+    <div class="sr-history">
+        <h3>{{ 'Recent attempts'|t('stripe-reconciler') }}</h3>
+
+        <p class="light">
+            {{ 'One row per payment attempt, not per order. Somebody who tried to pay twice leaves two rows, and only the attempt that actually took money can show as completed. A row saying no money was taken stays that way even after the order itself has been sorted out by another payment.'|t('stripe-reconciler') }}
+        </p>
+
+        <p class="light sr-stale" hidden data-sr-stale>
+            {{ 'This list was loaded before your last action, so it does not include it yet. Reload the page to bring it up to date.'|t('stripe-reconciler') }}
+        </p>
+
+        <div class="sr-scroll">
+        <table class="data fullwidth">
+            <thead>
+                <tr>
+                    <th scope="col">{{ 'Order'|t('stripe-reconciler') }}</th>
+                    <th scope="col">{{ 'Payment'|t('stripe-reconciler') }}</th>
+                    <th scope="col">{{ 'What happened'|t('stripe-reconciler') }}</th>
+                    <th scope="col">{{ 'Stripe said'|t('stripe-reconciler') }}</th>
+                    <th scope="col">{{ 'Times checked'|t('stripe-reconciler') }}</th>
+                    <th scope="col">{{ 'Last checked'|t('stripe-reconciler') }}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in history %}
+                    {% set label = row.orderReference ?? row.orderShortNumber ?? ('#' ~ row.orderId) %}
+                    <tr>
+                        <td>
+                            {% if row.orderId %}
+                                <a href="{{ cpUrl('commerce/orders/' ~ row.orderId) }}">{{ label }}</a>
+                            {% else %}
+                                {{ label }}
+                            {% endif %}
+                        </td>
+                        <td class="sr-payment code nowrap" title="{{ row.paymentIntentId ?? '' }}">{{ row.paymentIntentId ?? '-' }}</td>
+                        <td class="nowrap">
+                            <span class="status {{ row.outcomeColour }}"></span>{{ row.outcomeLabel }}
+                        </td>
+                        <td>{{ row.stripeStatus ?? '-' }}</td>
+                        <td>{{ row.attempts }}</td>
+                        <td>{{ row.dateLastAttempt|datetime('short') }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+{% endif %}
