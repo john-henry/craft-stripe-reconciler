@@ -1,0 +1,47 @@
+/**
+ * Stripe Reconciler utility styles.
+ *
+ * Only what the control panel has no class for. Craft's `zilch`, `fullwidth`,
+ * `nowrap`, `code`, `light` and `status` cover the rest.
+ */
+
+.sr-summary {
+    margin-bottom: 24px;
+}
+
+/**
+ * Scrolls a wide table inside its own box.
+ *
+ * Not Craft's `tablepane`: that carries negative margins to bleed a table to the
+ * pane edges, which drags it over the text above these tables.
+ */
+.sr-scroll {
+    overflow-x: auto;
+    max-width: 100%;
+}
+
+/**
+ * Room for the outcome sentence that replaces the button after a check.
+ */
+.sr-table td[data-status] {
+    white-space: normal;
+    min-width: 220px;
+}
+
+/**
+ * Clipped visually only: the full reference stays in the markup, so it copies
+ * whole. The title attribute shows it on hover.
+ */
+.sr-payment {
+    max-width: 14ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.sr-decide {
+    margin-top: 8px;
+}
+
+.sr-history {
+    margin-top: 32px;
+}

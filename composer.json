@@ -1,0 +1,69 @@
+{
+  "name": "johnhenry/craft-stripe-reconciler",
+  "description": "Recovers Stripe payments that succeeded but never finished in Craft Commerce, so customers who close the tab after paying still get their order",
+  "type": "craft-plugin",
+  "version": "1.0.0",
+  "keywords": [
+    "craft",
+    "cms",
+    "craftcms",
+    "craft-commerce",
+    "craft-plugin",
+    "stripe",
+    "payments",
+    "reconciliation"
+  ],
+  "license": "proprietary",
+  "authors": [
+    {
+      "name": "John Henry",
+      "homepage": "https://johnhenry.ie"
+    }
+  ],
+  "homepage": "https://johnhenry.ie/plugins/stripe-reconciler/",
+  "require": {
+    "php": "^8.2 || ^8.3 || ^8.4",
+    "craftcms/cms": "^5.0",
+    "craftcms/commerce": "^5.0",
+    "craftcms/commerce-stripe": "^5.0"
+  },
+  "require-dev": {
+    "craftcms/ecs": "dev-main",
+    "craftcms/phpstan": "dev-main"
+  },
+  "minimum-stability": "stable",
+  "prefer-stable": true,
+  "autoload": {
+    "psr-4": {
+      "johnhenry\\stripereconciler\\": "src/"
+    }
+  },
+  "scripts": {
+    "phpstan": "phpstan --ansi --memory-limit=1G",
+    "check-cs": "ecs check --ansi",
+    "fix-cs": "ecs check --fix --ansi"
+  },
+  "config": {
+    "allow-plugins": {
+      "craftcms/plugin-installer": true,
+      "pestphp/pest-plugin": true,
+      "yiisoft/yii2-composer": true
+    },
+    "optimize-autoloader": true,
+    "sort-packages": true
+  },
+  "support": {
+    "docs": "https://johnhenry.ie/plugins/stripe-reconciler/",
+    "source": "https://github.com/john-henry/craft-stripe-reconciler",
+    "issues": "https://github.com/john-henry/craft-stripe-reconciler/issues"
+  },
+  "extra": {
+    "name": "Stripe Reconciler",
+    "handle": "stripe-reconciler",
+    "developer": "John Henry",
+    "developerUrl": "https://johnhenry.ie",
+    "documentationUrl": "https://johnhenry.ie/plugins/stripe-reconciler/",
+    "changelogUrl": "https://github.com/john-henry/craft-stripe-reconciler/blob/craft-5/CHANGELOG.md",
+    "class": "johnhenry\\stripereconciler\\StripeReconciler"
+  }
+}
