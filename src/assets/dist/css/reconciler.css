@@ -45,3 +45,11 @@
 .sr-history {
     margin-top: 32px;
 }
+
+/**
+ * Stays mounted at all times so the check/reconcile result reaches assistive
+ * tech; margin is what gives it space, not presence, so it takes none while empty.
+ */
+.sr-stale:empty {
+    margin: 0;
+}

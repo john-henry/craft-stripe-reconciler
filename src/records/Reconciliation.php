@@ -14,7 +14,7 @@ use craft\db\ActiveRecord;
  * One row per Commerce transaction, updated in place on each attempt. The unique
  * index on `transactionId` makes idempotency a property of the schema.
  *
- * Order reference, short number and email are denormalised so the row survives the
+ * Order reference and short number are denormalised so the row survives the
  * order being deleted, which cascades its transactions away. `orderId` is nulled
  * rather than cascaded.
  *
@@ -25,7 +25,6 @@ use craft\db\ActiveRecord;
  * @property string|null $paymentIntentId
  * @property string|null $orderReference
  * @property string|null $orderShortNumber
- * @property string|null $email
  * @property string $candidateType
  * @property string $outcome
  * @property string|null $stripeStatus
@@ -34,8 +33,9 @@ use craft\db\ActiveRecord;
  * @property string|null $currency
  * @property int $attempts
  * @property string|null $message
+ * @property string|null $notifiedOutcome
  * @property string $dateLastAttempt
- * @author John Henry Donovan
+ * @author John Henry Donovan <info@johnhenry.ie>
  * @since 1.0.0
  */
 class Reconciliation extends ActiveRecord
@@ -48,7 +48,7 @@ class Reconciliation extends ActiveRecord
      * @inheritdoc
      *
      * @return string The table name.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     public static function tableName(): string

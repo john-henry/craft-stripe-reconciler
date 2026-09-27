@@ -19,11 +19,21 @@ use yii\queue\Queue;
  *
  * Queued because each order costs at least one Stripe round trip.
  *
- * @author John Henry Donovan
+ * @author John Henry Donovan <info@johnhenry.ie>
  * @since 1.0.0
  */
 class ReconcileOrders extends BaseJob
 {
+    // =========================================================================
+    // Const Properties
+    // =========================================================================
+
+    /**
+     * @var int Most orders one job checks, so a job finishes well inside the
+     * queue's time limit even when Stripe is slow and retrying.
+     */
+    public const BATCH_SIZE = 50;
+
     // =========================================================================
     // Public Properties
     // =========================================================================
@@ -34,17 +44,16 @@ class ReconcileOrders extends BaseJob
     public array $orderIds = [];
 
     /**
-     * @var bool Whether to ask Stripe but change nothing.
+     * @var bool Whether to ask Stripe but change nothing. Defaults to checking
+     * only, so a job queued without saying otherwise can't complete anything.
      */
-    public bool $dryRun = false;
+    public bool $dryRun = true;
 
     /**
-     * @var bool Whether completing a cart is permitted.
-     *
-     * Defaults to true: this job is only queued by a control panel action. An
-     * unattended caller should pass the `reconcileCarts` setting.
+     * @var bool Whether completing a cart is permitted. Off unless the caller
+     * says so.
      */
-    public bool $allowCarts = true;
+    public bool $allowCarts = false;
 
     // =========================================================================
     // Public Methods
@@ -58,9 +67,9 @@ class ReconcileOrders extends BaseJob
      *
      * @param QueueInterface|Queue $queue The queue running the job.
      * @return void
-     * @throws InvalidConfigException
+     * @throws InvalidConfigException If a plugin service cannot be resolved.
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
-     * @author John Henry Donovan
      */
     public function execute($queue): void
     {
@@ -91,7 +100,7 @@ class ReconcileOrders extends BaseJob
      * @inheritdoc
      *
      * @return string The job description.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     protected function defaultDescription(): string

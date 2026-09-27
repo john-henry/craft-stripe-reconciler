@@ -28,7 +28,7 @@ use yii\base\InvalidConfigException;
  * Classifies and reports only. Whether money arrived is decided in
  * ReconciliationService, by asking Stripe.
  *
- * @author John Henry Donovan
+ * @author John Henry Donovan <info@johnhenry.ie>
  * @since 1.0.0
  */
 class DiscoveryService extends Component
@@ -44,7 +44,7 @@ class DiscoveryService extends Component
      * several Stripe gateways.
      *
      * @return StripeGateway[] The Stripe gateways, keyed by gateway ID.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     public function getStripeGateways(): array
@@ -59,7 +59,8 @@ class DiscoveryService extends Component
         }
 
         $settings = StripeReconciler::$plugin->getSettings();
-        $allowed = $settings->enabledGateways;
+        // Values from an environment variable arrive as strings.
+        $allowed = array_map(static fn(mixed $id): int => (int)$id, $settings->enabledGateways);
         $gateways = [];
 
         /** @var CommerceGateway $gateway */
@@ -79,17 +80,19 @@ class DiscoveryService extends Component
     }
 
     /**
-     * Finds orders with Stripe transactions that never reached a final state.
+     * Finds orders with Stripe payment attempts that never reached a final state.
      *
-     * Covers both `redirect` (customer never returned) and `processing`
-     * (asynchronous methods such as SEPA and Bacs, which settle days later).
+     * Only parent transactions count: Commerce leaves the parent of every payment
+     * in `redirect` or `processing` and records the gateway's answer as child
+     * transactions, so a parent with a successful child is settled, and the
+     * children themselves are never attempts of their own.
      *
      * @param int|null $lookbackDays How many days back to search, or null to use the configured value.
      * @param int|null $gatewayId Restrict to a single gateway, or null for all Stripe gateways.
      * @param int|null $orderId Restrict to a single order, or null for all.
      * @return Candidate[] The candidates, oldest transaction first.
      * @throws InvalidConfigException If the audit service cannot be resolved.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     public function findCandidates(?int $lookbackDays = null, ?int $gatewayId = null, ?int $orderId = null): array
@@ -114,20 +117,27 @@ class DiscoveryService extends Component
         $days = max(1, $lookbackDays ?? $settings->lookbackDays);
         $since = Carbon::now()->subDays($days);
 
+        $settled = (new Query())
+            ->from(['children' => CommerceTable::TRANSACTIONS])
+            ->where('[[children.parentId]] = [[t.id]]')
+            ->andWhere(['children.status' => TransactionRecord::STATUS_SUCCESS]);
+
         $query = (new Query())
-            ->select(['id', 'orderId', 'gatewayId'])
-            ->from(CommerceTable::TRANSACTIONS)
+            ->select(['t.id', 't.orderId', 't.gatewayId'])
+            ->from(['t' => CommerceTable::TRANSACTIONS])
             ->where([
-                'status' => [TransactionRecord::STATUS_REDIRECT, TransactionRecord::STATUS_PROCESSING],
-                'gatewayId' => $gatewayIds,
-                'type' => [TransactionRecord::TYPE_PURCHASE, TransactionRecord::TYPE_AUTHORIZE],
+                't.parentId' => null,
+                't.status' => [TransactionRecord::STATUS_REDIRECT, TransactionRecord::STATUS_PROCESSING],
+                't.gatewayId' => $gatewayIds,
+                't.type' => [TransactionRecord::TYPE_PURCHASE, TransactionRecord::TYPE_AUTHORIZE],
             ])
-            ->orderBy(['dateCreated' => SORT_ASC]);
+            ->andWhere(['not exists', $settled])
+            ->orderBy(['t.dateCreated' => SORT_ASC, 't.id' => SORT_ASC]);
 
         if ($orderId !== null) {
-            $query->andWhere(['orderId' => $orderId]);
+            $query->andWhere(['t.orderId' => $orderId]);
         } else {
-            $query->andWhere(['>=', 'dateCreated', Db::prepareDateForDb($since)]);
+            $query->andWhere(['>=', 't.dateCreated', Db::prepareDateForDb($since)]);
         }
 
         $rows = $query->all();
@@ -155,14 +165,12 @@ class DiscoveryService extends Component
      *                       already-paid orders in the results.
      * @return Candidate[] The classified candidates.
      * @throws InvalidConfigException If the audit service cannot be resolved.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     private function _buildCandidates(array $rows, bool $explicit): array
     {
-        $audit = StripeReconciler::$plugin->getAudit();
-
-        $resolved = array_flip($audit->getTerminalTransactionIds(
+        $resolved = array_flip(StripeReconciler::$plugin->getAudit()->getTerminalTransactionIds(
             array_map(static fn(array $row): int => (int)$row['id'], $rows),
         ));
 
@@ -180,21 +188,18 @@ class DiscoveryService extends Component
             $grouped[$rowOrderId]['gatewayId'] = (int)$row['gatewayId'];
         }
 
+        if ($grouped === []) {
+            return [];
+        }
+
+        $orders = $this->_findOrders(array_keys($grouped));
         $candidates = [];
 
         foreach ($grouped as $groupedOrderId => $group) {
-            // Guards against completing a second payment on an already paid order.
-            if ($audit->hasReconciledOrder($groupedOrderId)) {
-                continue;
-            }
-
-            $order = $this->_findOrder($groupedOrderId);
+            $order = $orders[$groupedOrderId] ?? null;
             $type = $this->_classify($order);
 
-            // Commerce never rewrites the parent transaction, so it stays in
-            // "redirect" permanently, meaning every order paid via a redirect
-            // method keeps matching the query above.
-            if (!$explicit && $type === CandidateType::AlreadyPaid) {
+            if (!$explicit && !$type->isActionable()) {
                 continue;
             }
 
@@ -211,23 +216,32 @@ class DiscoveryService extends Component
     }
 
     /**
-     * Loads an order regardless of its status, including carts.
+     * Loads orders regardless of status, including carts, in one query.
      *
-     * @param int $orderId The order ID.
-     * @return Order|null The order, or null if it no longer exists.
-     * @author John Henry Donovan
-     * @since 1.0.0
+     * Deleted orders are left out: a merchant who deleted an order has decided
+     * what to do about it.
+     *
+     * @param int[] $orderIds The order IDs.
+     * @return array<int, Order> The orders that still exist, keyed by ID.
+     * @author John Henry Donovan <info@johnhenry.ie>
+     * @since 1.1.0
      */
-    private function _findOrder(int $orderId): ?Order
+    private function _findOrders(array $orderIds): array
     {
-        /** @var Order|null $order */
-        $order = Order::find()
-            ->id($orderId)
+        /** @var Order[] $orders */
+        $orders = Order::find()
+            ->id($orderIds)
             ->status(null)
-            ->trashed(null)
-            ->one();
+            ->limit(null)
+            ->all();
 
-        return $order;
+        $byId = [];
+
+        foreach ($orders as $order) {
+            $byId[(int)$order->id] = $order;
+        }
+
+        return $byId;
     }
 
     /**
@@ -239,7 +253,7 @@ class DiscoveryService extends Component
      *
      * @param Order|null $order The order, or null if it no longer exists.
      * @return CandidateType The classification.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     private function _classify(?Order $order): CandidateType
@@ -248,12 +262,18 @@ class DiscoveryService extends Component
             return CandidateType::OrderMissing;
         }
 
+        // Any unsettled attempt left on a paid order can only be a second charge.
         if ($order->getIsPaid()) {
-            return CandidateType::AlreadyPaid;
+            return CandidateType::ExtraAttempt;
         }
 
         if (!$order->isCompleted) {
             return CandidateType::AbandonedCart;
+        }
+
+        // Authorisations don't count as paid until they're captured.
+        if ($order->dateAuthorized !== null) {
+            return CandidateType::AwaitingCapture;
         }
 
         return CandidateType::UnpaidCompletedOrder;

@@ -12,7 +12,7 @@ use craft\web\assets\cp\CpAsset;
 /**
  * Control panel assets for the reconciler utility.
  *
- * @author John Henry Donovan
+ * @author John Henry Donovan <info@johnhenry.ie>
  * @since 1.0.0
  */
 class ReconcilerAsset extends AssetBundle
@@ -25,7 +25,7 @@ class ReconcilerAsset extends AssetBundle
      * @inheritdoc
      *
      * @return void
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     public function init(): void

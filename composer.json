@@ -1,17 +1,20 @@
 {
   "name": "johnhenry/craft-stripe-reconciler",
-  "description": "Recovers Stripe payments that succeeded but never finished in Craft Commerce, so customers who close the tab after paying still get their order",
+  "description": "Finds Stripe payments that went through but never finished in Craft Commerce, checks them with Stripe and completes the orders.",
   "type": "craft-plugin",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "keywords": [
-    "craft",
-    "cms",
-    "craftcms",
     "craft-commerce",
-    "craft-plugin",
     "stripe",
-    "payments",
-    "reconciliation"
+    "stripe payments",
+    "payment reconciliation",
+    "missing orders",
+    "unpaid orders",
+    "abandoned carts",
+    "3d secure",
+    "stripe webhooks",
+    "double charge",
+    "checkout recovery"
   ],
   "license": "proprietary",
   "authors": [
@@ -29,7 +32,8 @@
   },
   "require-dev": {
     "craftcms/ecs": "dev-main",
-    "craftcms/phpstan": "dev-main"
+    "craftcms/phpstan": "dev-main",
+    "phpstan/phpstan": "^2.2"
   },
   "minimum-stability": "stable",
   "prefer-stable": true,

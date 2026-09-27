@@ -8,6 +8,7 @@ namespace johnhenry\stripereconciler\utilities;
 
 use Craft;
 use craft\base\Utility;
+use craft\helpers\DateTimeHelper;
 use johnhenry\stripereconciler\assets\ReconcilerAsset;
 use johnhenry\stripereconciler\controllers\ReconcileController;
 use johnhenry\stripereconciler\enums\Outcome;
@@ -23,7 +24,7 @@ use yii\web\View;
  * Rendering costs a couple of database queries and no Stripe calls. Only the
  * buttons contact Stripe.
  *
- * @author John Henry Donovan
+ * @author John Henry Donovan <info@johnhenry.ie>
  * @since 1.0.0
  */
 class ReconcilerUtility extends Utility
@@ -50,7 +51,7 @@ class ReconcilerUtility extends Utility
      * @inheritdoc
      *
      * @return string The utility's display name.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     public static function displayName(): string
@@ -62,7 +63,7 @@ class ReconcilerUtility extends Utility
      * @inheritdoc
      *
      * @return string The utility's ID.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     public static function id(): string
@@ -77,7 +78,7 @@ class ReconcilerUtility extends Utility
      * system icon if the file is missing.
      *
      * @return string|null The utility's icon.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     public static function icon(): ?string
@@ -94,7 +95,7 @@ class ReconcilerUtility extends Utility
      * Utilities nav.
      *
      * @return int The number of actionable candidates.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     public static function badgeCount(): int
@@ -121,13 +122,14 @@ class ReconcilerUtility extends Utility
      *
      * @return string The rendered utility.
      * @throws Throwable If the candidates cannot be loaded or the template fails to render.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     public static function contentHtml(): string
     {
         $view = Craft::$app->getView();
         $view->registerAssetBundle(ReconcilerAsset::class);
+        $view->registerTranslations('stripe-reconciler', StripeReconciler::JS_TRANSLATIONS);
 
         $canReconcile = Craft::$app->getUser()->checkPermission(ReconcileController::PERMISSION_RECONCILE);
 
@@ -142,6 +144,8 @@ class ReconcilerUtility extends Utility
             'candidates' => self::_actionableCandidates(),
             'history' => self::_history(),
             'canReconcile' => $canReconcile,
+            // Customer emails are order details, so they need the order permission too.
+            'canSeeCustomers' => Craft::$app->getUser()->checkPermission('commerce-manageOrders'),
             'settings' => StripeReconciler::$plugin->getSettings(),
             // Distinguishes "nothing outstanding" from "checking nothing at all".
             'hasGateway' => StripeReconciler::$plugin->getDiscovery()->getStripeGateways() !== [],
@@ -156,9 +160,9 @@ class ReconcilerUtility extends Utility
      * Returns recent attempts with the outcome resolved to a label and colour.
      *
      * @return array<int, array<string, mixed>> The rows, newest attempt first.
-     * @throws InvalidConfigException
+     * @throws InvalidConfigException If a plugin service cannot be resolved.
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
-     * @author John Henry Donovan
      */
     private static function _history(): array
     {
@@ -167,18 +171,20 @@ class ReconcilerUtility extends Utility
         return array_map(static function(array $row): array {
             $row['outcomeLabel'] = Outcome::labelFor($row['outcome'] ?? null);
             $row['outcomeColour'] = Outcome::statusColourFor($row['outcome'] ?? null);
+            // Stored as naive UTC; this reads it as such.
+            $row['dateLastAttempt'] = DateTimeHelper::toDateTime($row['dateLastAttempt']) ?: null;
 
             return $row;
         }, $rows);
     }
 
     /**
-     * Returns the candidates worth acting on.
+     * Returns the candidates listed in the utility.
      *
-     * @return Candidate[] The actionable candidates.
-     * @throws InvalidConfigException
+     * @return Candidate[] The listed candidates.
+     * @throws InvalidConfigException If a plugin service cannot be resolved.
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
-     * @author John Henry Donovan
      */
     private static function _actionableCandidates(): array
     {
@@ -186,7 +192,7 @@ class ReconcilerUtility extends Utility
 
         return array_values(array_filter(
             $candidates,
-            static fn(Candidate $candidate): bool => $candidate->type->isActionable(),
+            static fn(Candidate $candidate): bool => $candidate->type->isListed(),
         ));
     }
 }

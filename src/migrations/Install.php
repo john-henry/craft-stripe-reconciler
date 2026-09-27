@@ -13,7 +13,7 @@ use johnhenry\stripereconciler\records\Reconciliation;
 /**
  * Installation migration.
  *
- * @author John Henry Donovan
+ * @author John Henry Donovan <info@johnhenry.ie>
  * @since 1.0.0
  */
 class Install extends Migration
@@ -26,7 +26,7 @@ class Install extends Migration
      * @inheritdoc
      *
      * @return bool Whether the migration succeeded.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     public function safeUp(): bool
@@ -45,15 +45,15 @@ class Install extends Migration
             'paymentIntentId' => $this->string()->null(),
             'orderReference' => $this->string()->null(),
             'orderShortNumber' => $this->string(16)->null(),
-            'email' => $this->string()->null(),
             'candidateType' => $this->string(64)->notNull(),
             'outcome' => $this->string(64)->notNull(),
             'stripeStatus' => $this->string(64)->null(),
-            'stripeAmountReceived' => $this->integer()->null(),
-            'orderTotalMinorUnits' => $this->integer()->null(),
+            'stripeAmountReceived' => $this->bigInteger()->null(),
+            'orderTotalMinorUnits' => $this->bigInteger()->null(),
             'currency' => $this->string(12)->null(),
             'attempts' => $this->integer()->notNull()->defaultValue(1),
             'message' => $this->text()->null(),
+            'notifiedOutcome' => $this->string(64)->null(),
             'dateLastAttempt' => $this->dateTime()->notNull(),
             'dateCreated' => $this->dateTime()->notNull(),
             'dateUpdated' => $this->dateTime()->notNull(),
@@ -77,7 +77,7 @@ class Install extends Migration
      * @inheritdoc
      *
      * @return bool Whether the migration succeeded.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     public function safeDown(): bool

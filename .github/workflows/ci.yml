@@ -18,6 +18,6 @@ jobs:
     uses: johnhenry-ie/.github/.github/workflows/ci.yml@main
     with:
       craft_version: "5"
-      jobs: '["ecs","phpstan"]'
+      jobs: '["ecs","phpstan","eslint"]'
     secrets:
       token: ${{ secrets.GITHUB_TOKEN }}

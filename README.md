@@ -1,14 +1,13 @@
 [![Stable Version](https://img.shields.io/packagist/v/johnhenry/craft-stripe-reconciler?label=stable&style=for-the-badge)](https://packagist.org/packages/johnhenry/craft-stripe-reconciler)
 [![Static Badge](https://img.shields.io/badge/BUY-plugin?style=for-the-badge&logo=craftcms&logoColor=white&logoSize=auto&label=Craft%20Plugin%20Store&labelColor=%23E5422B)](https://plugins.craftcms.com/stripe-reconciler?craft5)
 
-![Bundle Builder](https://johnhenry.ie/images/plugins/promos/stripe-reconciler/1.png)
-
+![Stripe Reconciler for Craft Commerce](https://johnhenry.ie/images/plugins/promos/stripe-reconciler/1.png)
 
 # Stripe Reconciler for Craft Commerce
 
 A customer pays by card, the money leaves their account, and then they close the tab before the browser makes it back to your site. Stripe has the payment. Craft Commerce knows nothing about it. The order sits there unpaid, or worse, it never became an order at all and is still sitting in the carts table where nobody will ever look at it.
 
-That is the problem this plugin exists to solve. It finds those payments, checks them against Stripe, and finishes the job Commerce would have finished if the browser had come back.
+Stripe Reconciler finds those payments, checks each one with Stripe, and finishes the job Commerce would have finished if the browser had come back.
 
 ## What it actually does
 
@@ -20,21 +19,26 @@ The rule it works to is a simple one: do exactly what Commerce would have done i
 
 ## Documentation
 
-Full documentation is at [https://johnhenry.ie/plugins/stripe-reconciler/](https://johnhenry.ie/plugins/stripe-reconciler/docs)
+Full documentation is at [johnhenry.ie/plugins/stripe-reconciler/docs](https://johnhenry.ie/plugins/stripe-reconciler/docs/getting-started/overview).
 
 ## Requirements
 
-- Craft CMS 5
-- Craft Commerce 5
-- Craft Commerce Stripe 5
+- Craft CMS 5.0 or later
+- Craft Commerce 5.0 or later
+- Craft Commerce Stripe 5.0 or later
+- PHP 8.2 or later
+
+## Accessibility
+
+How accessible the plugin is, what's been checked, and how to report a problem are all in the [accessibility statement](https://github.com/john-henry/craft-stripe-reconciler/blob/craft-5/ACCESSIBILITY.md).
 
 ## Support
 
-For support, drop by the [GitHub Issues page](https://github.com/john-henry/craft-stripe-reconciler/issues).
+Need a hand? Open an issue on the [GitHub Issues page](https://github.com/john-henry/craft-stripe-reconciler/issues).
 
 ## License
 
-Proprietary - Copyright (c) 2026 John Henry Donovan
+Proprietary. Copyright (c) 2026 John Henry Donovan.
 
 ---
 

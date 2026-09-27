@@ -28,7 +28,9 @@ it('speaks up when money is sitting on an order nobody finished', function() {
     expect(Outcome::CartSkipped->needsNotification())->toBeTrue()
         ->and(Outcome::DryRun->needsNotification())->toBeTrue()
         ->and(Outcome::AmountMismatch->needsNotification())->toBeTrue()
-        ->and(Outcome::CompletionFailed->needsNotification())->toBeTrue();
+        ->and(Outcome::CompletionFailed->needsNotification())->toBeTrue()
+        ->and(Outcome::RefundedOrDisputed->needsNotification())->toBeTrue()
+        ->and(Outcome::PossibleDoubleCharge->needsNotification())->toBeTrue();
 });
 
 it('says nothing about work that sorted itself out', function() {
@@ -37,27 +39,11 @@ it('says nothing about work that sorted itself out', function() {
         ->and(Outcome::Errored->needsNotification())->toBeFalse();
 });
 
-it('keeps only the notifiable results from a run', function() {
-    $items = [
-        digestItem(Outcome::NotPaidAtStripe),
-        digestItem(Outcome::CartSkipped),
-        digestItem(Outcome::Abandoned),
-        digestItem(Outcome::Reconciled),
-        digestItem(Outcome::AmountMismatch),
-    ];
-
-    $kept = StripeReconciler::$plugin->getNotification()->filterNotifiable($items);
-
-    expect($kept)->toHaveCount(2)
-        ->and($kept[0]['result']->outcome)->toBe(Outcome::CartSkipped)
-        ->and($kept[1]['result']->outcome)->toBe(Outcome::AmountMismatch);
-});
-
 it('sends nothing when a run turns up nothing worth sending', function() {
     $settings = StripeReconciler::$plugin->getSettings();
     $settings->notificationEmail = 'shop@example.test';
 
-    $notifiable = StripeReconciler::$plugin->getNotification()->filterNotifiable([
+    $notifiable = StripeReconciler::$plugin->getAudit()->filterUnnotified([
         digestItem(Outcome::NotPaidAtStripe),
         digestItem(Outcome::Abandoned),
     ]);

@@ -112,25 +112,27 @@ it('labels a completed order by its reference', function() {
 it('leaves already paid orders out of a general sweep', function() {
     $gatewayId = stripeGatewayId();
     $order = paidOrder();
-    seedTransaction($order->id, $gatewayId);
+    $parent = seedTransaction($order->id, $gatewayId);
+    seedTransaction($order->id, $gatewayId, 'success', 'purchase', null, $parent);
 
-    // Commerce leaves the parent transaction in "redirect" permanently.
+    // Commerce leaves the parent transaction in "redirect" for good and records
+    // the payment as a successful child.
     $candidates = StripeReconciler::$plugin->getDiscovery()->findCandidates();
 
     expect(candidateFor($candidates, $order->id))->toBeNull();
 });
 
-it('still explains an already paid order when asked about it directly', function() {
+it('checks another attempt on a paid order, but keeps it off the list', function() {
     $gatewayId = stripeGatewayId();
     $order = paidOrder();
     seedTransaction($order->id, $gatewayId);
 
-    $candidates = StripeReconciler::$plugin->getDiscovery()->findCandidates(orderId: $order->id);
-    $candidate = candidateFor($candidates, $order->id);
+    $candidate = candidateFor(StripeReconciler::$plugin->getDiscovery()->findCandidates(), $order->id);
 
     expect($candidate)->not->toBeNull()
-        ->and($candidate->type)->toBe(CandidateType::AlreadyPaid)
-        ->and($candidate->type->isActionable())->toBeFalse();
+        ->and($candidate->type)->toBe(CandidateType::ExtraAttempt)
+        ->and($candidate->type->isActionable())->toBeTrue()
+        ->and($candidate->type->isListed())->toBeFalse();
 });
 
 it('discovers processing transactions, not just redirects', function() {

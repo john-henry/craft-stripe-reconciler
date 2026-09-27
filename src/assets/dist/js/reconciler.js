@@ -68,11 +68,24 @@
      * Flags the history table as out of date. It was rendered before this action.
      */
     function markHistoryStale() {
-        var note = document.querySelector('[data-sr-stale]');
+        var status = document.querySelector('[data-sr-stale]');
 
-        if (note) {
-            note.removeAttribute('hidden');
+        if (status) {
+            status.textContent = t('This list was loaded before your last action, so it does not include it yet. Reload the page to bring it up to date.');
         }
+    }
+
+    /**
+     * Moves focus onto a cell whose interactive content was just replaced, so
+     * keyboard and screen reader users land somewhere meaningful instead of
+     * being dropped back to the document body.
+     */
+    function focusCell(cell) {
+        if (!cell.hasAttribute('tabindex')) {
+            cell.setAttribute('tabindex', '-1');
+        }
+
+        cell.focus();
     }
 
     /**
@@ -119,6 +132,7 @@
                     renderOutcome(cell, data);
                     markHistoryStale();
                     window.Craft.cp.displayNotice(data.message);
+                    focusCell(cell);
                 })
                 .catch(function() {
                     window.Craft.cp.displayError(t('Could not reach the server.'));
@@ -128,6 +142,7 @@
 
         wrap.appendChild(button);
         cell.appendChild(wrap);
+        button.focus();
     }
 
     /**
@@ -150,9 +165,12 @@
 
                     renderOutcome(cell, data);
                     markHistoryStale();
+                    window.Craft.cp.displayNotice(data.message);
 
                     if (data.reconcilable) {
                         offerReconcile(cell, orderId);
+                    } else {
+                        focusCell(cell);
                     }
                 })
                 .catch(function() {

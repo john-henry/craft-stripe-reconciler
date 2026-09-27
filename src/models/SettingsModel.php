@@ -14,7 +14,7 @@ use craft\base\Model;
  * Configured through `config/stripe-reconciler.php`. There is no control panel
  * settings screen in this release.
  *
- * @author John Henry Donovan
+ * @author John Henry Donovan <info@johnhenry.ie>
  * @since 1.0.0
  */
 class SettingsModel extends Model
@@ -104,7 +104,7 @@ class SettingsModel extends Model
      * @inheritdoc
      *
      * @return array<int, array<int, mixed>> The validation rules.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     protected function defineRules(): array
