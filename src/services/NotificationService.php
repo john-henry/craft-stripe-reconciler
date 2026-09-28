@@ -21,7 +21,7 @@ use yii\base\Component;
  * One digest per run, not one mail per payment. Called by the console command
  * only.
  *
- * @author John Henry Donovan
+ * @author John Henry Donovan <info@johnhenry.ie>
  * @since 1.0.0
  */
 class NotificationService extends Component
@@ -35,7 +35,7 @@ class NotificationService extends Component
      *
      * @param array<int, array{candidate: Candidate, result: ReconciliationResult}> $items The notifiable items.
      * @return bool Whether a mail was sent.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     public function sendDigest(array $items): bool
@@ -66,22 +66,6 @@ class NotificationService extends Component
         }
     }
 
-    /**
-     * Filters a run's results down to the ones worth an email.
-     *
-     * @param array<int, array{candidate: Candidate, result: ReconciliationResult}> $items Every result from the run.
-     * @return array<int, array{candidate: Candidate, result: ReconciliationResult}> The notifiable ones.
-     * @author John Henry Donovan
-     * @since 1.0.0
-     */
-    public function filterNotifiable(array $items): array
-    {
-        return array_values(array_filter(
-            $items,
-            static fn(array $item): bool => $item['result']->outcome->needsNotification(),
-        ));
-    }
-
     // =========================================================================
     // Private Methods
     // =========================================================================
@@ -91,7 +75,7 @@ class NotificationService extends Component
      *
      * @param int $count How many payments are waiting.
      * @return string The subject.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     private function _subject(int $count): string
@@ -111,7 +95,7 @@ class NotificationService extends Component
      *
      * @param array<int, array{candidate: Candidate, result: ReconciliationResult}> $items The notifiable items.
      * @return string The body.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     private function _body(array $items): string

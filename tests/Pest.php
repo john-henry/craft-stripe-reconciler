@@ -10,13 +10,17 @@
 use craft\commerce\elements\conditions\addresses\GatewayAddressCondition;
 use craft\commerce\elements\conditions\orders\GatewayOrderCondition;
 use craft\commerce\elements\Order;
+use craft\commerce\models\Transaction;
 use craft\commerce\models\OrderAdjustment;
 use craft\commerce\Plugin as Commerce;
 use craft\commerce\services\Gateways;
+use craft\commerce\services\Payments;
 use craft\commerce\stripe\gateways\PaymentIntents;
 use craft\helpers\Db;
 use craft\helpers\Json;
 use craft\helpers\StringHelper;
+use johnhenry\stripereconciler\models\Candidate;
+use johnhenry\stripereconciler\services\ReconciliationService;
 use johnhenry\stripereconciler\StripeReconciler;
 use markhuot\craftpest\test\RefreshesDatabase;
 use markhuot\craftpest\test\TestCase;
@@ -40,10 +44,30 @@ uses()->beforeEach(function() {
         );
     }
 
+    // The transaction only covers what it can roll back; MySQL commits
+    // implicitly on ALTER TABLE, which a Field factory triggers. So the database
+    // itself has to be the test one. phpunit.xml.dist pins it, and craft-pest
+    // reads that file from the working directory, so running from anywhere but
+    // the repo root leaves the pin unapplied and Craft on the dev database.
+    $database = Craft::$app->getDb()->createCommand('SELECT DATABASE()')->queryScalar();
+
+    if ($database !== 'db_test') {
+        throw new RuntimeException(sprintf(
+            'Refusing to run: connected to database "%s", expected "db_test". Run the suite '
+            . 'from the repo root via `composer test:sr`.',
+            $database,
+        ));
+    }
+
     // The gateway list is memoised on the Commerce Gateways service, which is a
     // process-level singleton that RefreshesDatabase does not roll back. Swapping
     // in a fresh instance stops one test's fixture gateway leaking into the next.
     Commerce::getInstance()->set('gateways', new Gateways());
+
+    // Tests that fake Commerce's payment completion swap this service out; the
+    // real one goes back for every test.
+    Commerce::getInstance()->set('payments', new Payments());
+    StripeReconciler::$plugin->set('reconciliation', new ReconciliationService());
 
     // Yii's FileCache reads entries with a suppressed `@filemtime()`, which is
     // fine in production but PHPUnit's error handler reports suppressed warnings
@@ -162,9 +186,10 @@ function dummyGatewayId(): ?int
  * Creates a cart: an order that was never completed.
  *
  * @param string $email The customer email.
+ * @param float $total The cart total, or 0 for an empty one.
  * @return Order The saved cart.
  */
-function cartOrder(string $email = 'cart@example.test'): Order
+function cartOrder(string $email = 'cart@example.test', float $total = 0.0): Order
 {
     $order = new Order();
     $order->email = $email;
@@ -175,6 +200,18 @@ function cartOrder(string $email = 'cart@example.test'): Order
     $order->setRecalculationMode(Order::RECALCULATION_MODE_NONE);
 
     Craft::$app->getElements()->saveElement($order, false);
+
+    if ($total > 0) {
+        $adjustment = new OrderAdjustment();
+        $adjustment->name = 'Fixture';
+        $adjustment->type = 'tax';
+        $adjustment->amount = $total;
+        $adjustment->sourceSnapshot = [];
+        $adjustment->setOrder($order);
+        $order->setAdjustments([$adjustment]);
+
+        Craft::$app->getElements()->saveElement($order, false);
+    }
 
     return $order;
 }
@@ -247,6 +284,10 @@ function paidOrder(string $email = 'paid@example.test'): Order
  * @param string $status One of the commerce_transactions status values.
  * @param string $type One of the commerce_transactions type values.
  * @param array<string, mixed>|null $response The stored gateway response.
+ * @param int|null $parentId The parent transaction, for a child.
+ * @param float $amount The amount, in the order currency.
+ * @param string $paymentCurrency The currency the payment was taken in.
+ * @param float|null $paymentAmount The amount in the payment currency, or null for the same as `$amount`.
  * @return int The new transaction ID.
  */
 function seedTransaction(
@@ -255,19 +296,24 @@ function seedTransaction(
     string $status = 'redirect',
     string $type = 'purchase',
     ?array $response = null,
+    ?int $parentId = null,
+    float $amount = 50.0,
+    string $paymentCurrency = 'USD',
+    ?float $paymentAmount = null,
 ): int {
     $db = Craft::$app->getDb();
 
     $db->createCommand()->insert('{{%commerce_transactions}}', [
         'orderId' => $orderId,
         'gatewayId' => $gatewayId,
+        'parentId' => $parentId,
         'hash' => substr(md5((string)mt_rand()), 0, 32),
         'type' => $type,
         'status' => $status,
-        'amount' => 50.0,
-        'paymentAmount' => 50.0,
+        'amount' => $amount,
+        'paymentAmount' => $paymentAmount ?? $amount,
         'currency' => 'USD',
-        'paymentCurrency' => 'USD',
+        'paymentCurrency' => $paymentCurrency,
         'paymentRate' => 1,
         'response' => Json::encode($response ?? ['id' => 'pi_fixture_' . mt_rand(), 'object' => 'payment_intent']),
         'dateCreated' => Db::prepareDateForDb(new DateTime()),
@@ -276,4 +322,109 @@ function seedTransaction(
     ])->execute();
 
     return (int)$db->getLastInsertID();
+}
+
+/**
+ * A reconciliation service with a canned Stripe response.
+ *
+ * `inspect()` is the only point where the service talks to Stripe, so overriding
+ * it exercises the real pre-flight decision logic against known PaymentIntent
+ * payloads without needing live API credentials.
+ */
+class StubReconciliationService extends ReconciliationService
+{
+    /**
+     * @var array<string, mixed>|null The PaymentIntent to return.
+     */
+    public ?array $intent = null;
+
+    /**
+     * @var array<int, array<string, mixed>> PaymentIntents to return for particular
+     *                                        transactions, keyed by transaction ID.
+     */
+    public array $intents = [];
+
+    /**
+     * @var bool Whether inspect() was reached.
+     */
+    public bool $inspected = false;
+
+    /**
+     * @var string|null An error to throw instead of returning an intent, standing
+     *                  in for Stripe refusing the lookup.
+     */
+    public ?string $throw = null;
+
+    /**
+     * @var Throwable|null A specific exception to throw instead of returning an intent.
+     */
+    public ?Throwable $throwable = null;
+
+    /**
+     * @inheritdoc
+     */
+    public function inspect(Transaction $transaction): ?array
+    {
+        $this->inspected = true;
+
+        if ($this->throwable !== null) {
+            throw $this->throwable;
+        }
+
+        if ($this->throw !== null) {
+            throw new RuntimeException($this->throw);
+        }
+
+        return $this->intents[$transaction->id] ?? $this->intent;
+    }
+
+    /**
+     * Exposes how an unconfirmed Checkout Session is read.
+     *
+     * @param array<string, mixed> $session The session.
+     * @return array<string, mixed>
+     */
+    public function describeSession(array $session): array
+    {
+        return $this->sessionAsIntent($session);
+    }
+}
+
+/**
+ * Builds a candidate from a freshly discovered order.
+ *
+ * @param int $orderId The order ID.
+ * @return Candidate The candidate.
+ */
+function discoveredCandidate(int $orderId): Candidate
+{
+    // Lookup by ID bypasses the re-check backoff, so the gate can run twice.
+    foreach (StripeReconciler::$plugin->getDiscovery()->findCandidates(orderId: $orderId) as $candidate) {
+        if ($candidate->orderId === $orderId) {
+            return $candidate;
+        }
+    }
+
+    throw new RuntimeException('Order ' . $orderId . ' was not discovered as a candidate.');
+}
+
+/**
+ * Runs the stub service over an order and returns the single result.
+ *
+ * @param int $orderId The order ID.
+ * @param array<string, mixed>|null $intent The canned PaymentIntent.
+ * @param bool $dryRun Whether to run as a dry run.
+ * @param bool|null $allowCarts Whether completing a cart is permitted, or null to use the setting.
+ * @return array{0: johnhenry\stripereconciler\models\ReconciliationResult, 1: StubReconciliationService}
+ */
+function runGate(int $orderId, ?array $intent, bool $dryRun = false, ?bool $allowCarts = null): array
+{
+    $service = new StubReconciliationService();
+    $service->intent = $intent;
+
+    $results = $service->reconcile(discoveredCandidate($orderId), $dryRun, $allowCarts);
+
+    expect($results)->toHaveCount(1);
+
+    return [$results[0], $service];
 }

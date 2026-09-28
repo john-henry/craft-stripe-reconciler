@@ -13,7 +13,7 @@ use Craft;
  *
  * Recorded against every attempt.
  *
- * @author John Henry Donovan
+ * @author John Henry Donovan <info@johnhenry.ie>
  * @since 1.0.0
  */
 enum Outcome: string
@@ -67,6 +67,24 @@ enum Outcome: string
      */
     case DryRun = 'dryRun';
 
+    /**
+     * Stripe took the payment but it has since been refunded, in part or in full,
+     * or disputed. Left alone for a person to decide, and not looked at again.
+     */
+    case RefundedOrDisputed = 'refundedOrDisputed';
+
+    /**
+     * Stripe has no record of the payment, usually because the store's keys were
+     * switched to another account or from test to live. Not looked at again.
+     */
+    case MissingAtStripe = 'missingAtStripe';
+
+    /**
+     * Stripe took money for an attempt on an order that another payment has
+     * already paid. The customer may have been charged twice.
+     */
+    case PossibleDoubleCharge = 'possibleDoubleCharge';
+
     // =========================================================================
     // Static Methods
     // =========================================================================
@@ -75,7 +93,7 @@ enum Outcome: string
      * Returns the stored values of every outcome that is final.
      *
      * @return string[] The terminal outcome values.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     public static function terminalValues(): array
@@ -91,7 +109,7 @@ enum Outcome: string
      *
      * @param string|null $value The stored outcome value.
      * @return string The label, or the raw value if it is not one we know.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     public static function labelFor(?string $value): string
@@ -108,7 +126,7 @@ enum Outcome: string
      *
      * @param string|null $value The stored outcome value.
      * @return string A Craft `status` colour class.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     public static function statusColourFor(?string $value): string
@@ -132,13 +150,13 @@ enum Outcome: string
      * since it may still change.
      *
      * @return bool True if the payment is resolved for good.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     public function isTerminal(): bool
     {
         return match ($this) {
-            self::Reconciled, self::Abandoned => true,
+            self::Reconciled, self::Abandoned, self::RefundedOrDisputed, self::MissingAtStripe, self::PossibleDoubleCharge => true,
             default => false,
         };
     }
@@ -150,7 +168,7 @@ enum Outcome: string
      * panel and console.
      *
      * @return string The label.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     public function label(): string
@@ -165,6 +183,9 @@ enum Outcome: string
             self::CompletionFailed => 'Could not complete',
             self::Errored => 'Something went wrong',
             self::DryRun => 'Paid, ready to complete',
+            self::RefundedOrDisputed => 'Refunded or disputed, left alone',
+            self::MissingAtStripe => 'Not found at Stripe, closed',
+            self::PossibleDoubleCharge => 'Possible double charge',
         });
     }
 
@@ -178,7 +199,7 @@ enum Outcome: string
      * rather than an order.
      *
      * @return string A Craft `status` colour class.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     public function statusColour(): string
@@ -186,8 +207,8 @@ enum Outcome: string
         return match ($this) {
             self::Reconciled => 'green',
             self::CartSkipped, self::DryRun => 'orange',
-            self::AmountMismatch, self::CompletionFailed, self::Errored => 'red',
-            self::NotPaidAtStripe, self::Abandoned, self::StillProcessing => 'grey',
+            self::AmountMismatch, self::CompletionFailed, self::Errored, self::RefundedOrDisputed, self::PossibleDoubleCharge => 'red',
+            self::NotPaidAtStripe, self::Abandoned, self::StillProcessing, self::MissingAtStripe => 'grey',
         };
     }
 
@@ -201,14 +222,43 @@ enum Outcome: string
      * logs instead, so a Stripe outage does not generate mail.
      *
      * @return bool True if somebody should be told about it.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     public function needsNotification(): bool
     {
         return match ($this) {
-            self::CartSkipped, self::DryRun, self::AmountMismatch, self::CompletionFailed => true,
+            self::CartSkipped, self::DryRun, self::AmountMismatch, self::CompletionFailed, self::RefundedOrDisputed, self::PossibleDoubleCharge => true,
             default => false,
+        };
+    }
+
+    /**
+     * Returns how much this outcome matters to a person looking at one order.
+     *
+     * When an order has several payment attempts, the control panel reports the
+     * one ranked highest, so a paid attempt is never hidden behind a later
+     * abandoned one.
+     *
+     * @return int The rank; higher matters more.
+     * @author John Henry Donovan <info@johnhenry.ie>
+     * @since 1.1.0
+     */
+    public function priority(): int
+    {
+        return match ($this) {
+            self::Reconciled => 100,
+            self::DryRun => 90,
+            self::PossibleDoubleCharge => 85,
+            self::RefundedOrDisputed => 80,
+            self::AmountMismatch => 70,
+            self::CompletionFailed => 60,
+            self::CartSkipped => 50,
+            self::StillProcessing => 40,
+            self::Errored => 30,
+            self::MissingAtStripe => 20,
+            self::NotPaidAtStripe => 10,
+            self::Abandoned => 0,
         };
     }
 
@@ -216,14 +266,29 @@ enum Outcome: string
      * Returns whether this outcome warrants a human looking at it.
      *
      * @return bool True if the outcome should be highlighted in console output.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     public function needsAttention(): bool
     {
         return match ($this) {
-            self::AmountMismatch, self::CompletionFailed, self::Errored => true,
+            self::AmountMismatch, self::CompletionFailed, self::Errored, self::RefundedOrDisputed, self::PossibleDoubleCharge => true,
             default => false,
         };
+    }
+
+    /**
+     * Returns whether a later unattended run should wait `recheckAfterMinutes`
+     * before asking Stripe about this payment again.
+     *
+     * A dry run doesn't count, so checking first never delays the real run.
+     *
+     * @return bool True if the outcome starts the re-check wait.
+     * @author John Henry Donovan <info@johnhenry.ie>
+     * @since 1.1.0
+     */
+    public function startsBackoff(): bool
+    {
+        return $this !== self::DryRun;
     }
 }

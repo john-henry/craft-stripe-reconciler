@@ -6,8 +6,10 @@
 
 namespace johnhenry\stripereconciler\console\controllers;
 
+use Craft;
 use craft\console\Controller;
 use craft\helpers\Console;
+use craft\helpers\DateTimeHelper;
 use johnhenry\stripereconciler\enums\Outcome;
 use johnhenry\stripereconciler\models\Candidate;
 use johnhenry\stripereconciler\StripeReconciler;
@@ -18,11 +20,20 @@ use yii\console\ExitCode;
 /**
  * Reconciles Stripe payments that never finished in Commerce.
  *
- * @author John Henry Donovan
+ * @author John Henry Donovan <info@johnhenry.ie>
  * @since 1.0.0
  */
 class ReconcileController extends Controller
 {
+    // =========================================================================
+    // Const Properties
+    // =========================================================================
+
+    /**
+     * @var string Name of the lock that stops two runs overlapping.
+     */
+    public const LOCK_NAME = 'stripe-reconciler:run';
+
     // =========================================================================
     // Public Properties
     // =========================================================================
@@ -61,7 +72,7 @@ class ReconcileController extends Controller
      *
      * @param string $actionID The action being executed.
      * @return string[] The supported options.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     public function options($actionID): array
@@ -93,7 +104,7 @@ class ReconcileController extends Controller
      *
      * @return int The exit code.
      * @throws InvalidConfigException If a plugin service cannot be resolved.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     public function actionIndex(): int
@@ -102,6 +113,104 @@ class ReconcileController extends Controller
             return ExitCode::CONFIG;
         }
 
+        $mutex = Craft::$app->getMutex();
+
+        if (!$mutex->acquire(self::LOCK_NAME)) {
+            $this->stdout('Another run is still going, so this one is stopping.' . PHP_EOL, Console::FG_YELLOW);
+
+            return ExitCode::OK;
+        }
+
+        try {
+            return $this->_run();
+        } finally {
+            $mutex->release(self::LOCK_NAME);
+        }
+    }
+
+    /**
+     * Lists candidate orders without contacting Stripe or changing anything.
+     *
+     * @return int The exit code.
+     * @throws InvalidConfigException If a plugin service cannot be resolved.
+     * @author John Henry Donovan <info@johnhenry.ie>
+     * @since 1.0.0
+     */
+    public function actionReport(): int
+    {
+        if (!$this->_hasStripeGateway()) {
+            return ExitCode::CONFIG;
+        }
+
+        $candidates = $this->_findCandidates();
+
+        if ($candidates === []) {
+            $this->stdout('No unresolved Stripe transactions found.' . PHP_EOL, Console::FG_GREEN);
+
+            return ExitCode::OK;
+        }
+
+        $rows = array_map(static fn(Candidate $c): array => [
+            $c->getLabel(),
+            $c->type->label(),
+            (string)count($c->transactionIds),
+            $c->order->email ?? '-',
+        ], $candidates);
+
+        $this->stdout(count($candidates) . ' candidate(s):' . PHP_EOL . PHP_EOL);
+        $this->_writeTable(['Order', 'Classification', 'Txns', 'Email'], $rows);
+
+        return ExitCode::OK;
+    }
+
+    /**
+     * Shows recent reconciliation attempts from the audit trail.
+     *
+     * @return int The exit code.
+     * @throws InvalidConfigException If a plugin service cannot be resolved.
+     * @author John Henry Donovan <info@johnhenry.ie>
+     * @since 1.0.0
+     */
+    public function actionHistory(): int
+    {
+        $rows = StripeReconciler::$plugin->getAudit()->getRecent($this->limit ?? 25);
+
+        if ($rows === []) {
+            $this->stdout('No reconciliation attempts recorded yet.' . PHP_EOL);
+
+            return ExitCode::OK;
+        }
+
+        $formatter = Craft::$app->getFormatter();
+
+        $table = array_map(static fn(array $row): array => [
+            (string)($row['orderReference'] ?? $row['orderShortNumber'] ?? ('#' . ($row['orderId'] ?? '?'))),
+            (string)($row['paymentIntentId'] ?? '-'),
+            Outcome::labelFor($row['outcome'] ?? null),
+            (string)($row['stripeStatus'] ?? '-'),
+            (string)$row['attempts'],
+            $formatter->asDatetime(DateTimeHelper::toDateTime($row['dateLastAttempt']), 'short'),
+        ], $rows);
+
+        $this->_writeTable(['Order', 'Payment', 'What happened', 'Stripe said', 'Times checked', 'Last checked'], $table);
+
+        return ExitCode::OK;
+    }
+
+    // =========================================================================
+    // Private Methods
+    // =========================================================================
+
+    /**
+     * Runs one reconciliation pass over every candidate.
+     *
+     * @return int The exit code.
+     * @throws InvalidConfigException If a plugin service cannot be resolved.
+     * @author John Henry Donovan <info@johnhenry.ie>
+     * @since 1.1.0
+     */
+    private function _run(): int
+    {
         $candidates = $this->_findCandidates();
 
         if ($candidates === []) {
@@ -152,9 +261,7 @@ class ReconcileController extends Controller
                     $attention++;
                 }
 
-                if ($result->outcome->needsNotification()) {
-                    $notifiable[] = ['candidate' => $candidate, 'result' => $result];
-                }
+                $notifiable[] = ['candidate' => $candidate, 'result' => $result];
 
                 $this->stdout('  ' . $candidate->getLabel() . ': ', Console::FG_GREY);
                 $this->stdout($result->outcome->label(), $this->_colourFor($result->outcome));
@@ -178,7 +285,13 @@ class ReconcileController extends Controller
         }
 
         // Only the console notifies; control panel actions show the answer inline.
+        // A dry run notifies too: a refund or double charge it finds is final, so
+        // no later run would mention it.
+        $audit = StripeReconciler::$plugin->getAudit();
+        $notifiable = $audit->filterUnnotified($notifiable);
+
         if (StripeReconciler::$plugin->getNotification()->sendDigest($notifiable)) {
+            $audit->markNotified($notifiable);
             $this->stdout(PHP_EOL . 'Emailed ' . count($notifiable) . ' payment(s) needing attention.' . PHP_EOL, Console::FG_GREY);
         }
 
@@ -192,77 +305,6 @@ class ReconcileController extends Controller
     }
 
     /**
-     * Lists candidate orders without contacting Stripe or changing anything.
-     *
-     * @return int The exit code.
-     * @throws InvalidConfigException If a plugin service cannot be resolved.
-     * @author John Henry Donovan
-     * @since 1.0.0
-     */
-    public function actionReport(): int
-    {
-        if (!$this->_hasStripeGateway()) {
-            return ExitCode::CONFIG;
-        }
-
-        $candidates = $this->_findCandidates();
-
-        if ($candidates === []) {
-            $this->stdout('No unresolved Stripe transactions found.' . PHP_EOL, Console::FG_GREEN);
-
-            return ExitCode::OK;
-        }
-
-        $rows = array_map(static fn(Candidate $c): array => [
-            $c->getLabel(),
-            $c->type->label(),
-            (string)count($c->transactionIds),
-            $c->order->email ?? '-',
-        ], $candidates);
-
-        $this->stdout(count($candidates) . ' candidate(s):' . PHP_EOL . PHP_EOL);
-        $this->_writeTable(['Order', 'Classification', 'Txns', 'Email'], $rows);
-
-        return ExitCode::OK;
-    }
-
-    /**
-     * Shows recent reconciliation attempts from the audit trail.
-     *
-     * @return int The exit code.
-     * @throws InvalidConfigException If a plugin service cannot be resolved.
-     * @author John Henry Donovan
-     * @since 1.0.0
-     */
-    public function actionHistory(): int
-    {
-        $rows = StripeReconciler::$plugin->getAudit()->getRecent($this->limit ?? 25);
-
-        if ($rows === []) {
-            $this->stdout('No reconciliation attempts recorded yet.' . PHP_EOL);
-
-            return ExitCode::OK;
-        }
-
-        $table = array_map(static fn(array $row): array => [
-            (string)($row['orderReference'] ?? $row['orderShortNumber'] ?? ('#' . ($row['orderId'] ?? '?'))),
-            (string)($row['paymentIntentId'] ?? '-'),
-            Outcome::labelFor($row['outcome'] ?? null),
-            (string)($row['stripeStatus'] ?? '-'),
-            (string)$row['attempts'],
-            (string)$row['dateLastAttempt'],
-        ], $rows);
-
-        $this->_writeTable(['Order', 'Payment', 'What happened', 'Stripe said', 'Times checked', 'Last checked'], $table);
-
-        return ExitCode::OK;
-    }
-
-    // =========================================================================
-    // Private Methods
-    // =========================================================================
-
-    /**
      * Reports whether any Stripe gateway is available to check.
      *
      * Distinguishes "nothing outstanding" from "checking nothing at all", which
@@ -270,7 +312,7 @@ class ReconcileController extends Controller
      *
      * @return bool True if at least one Stripe gateway is in scope.
      * @throws InvalidConfigException If a plugin service cannot be resolved.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     private function _hasStripeGateway(): bool
@@ -293,7 +335,7 @@ class ReconcileController extends Controller
      *
      * @return Candidate[] The candidates.
      * @throws InvalidConfigException If a plugin service cannot be resolved.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     private function _findCandidates(): array
@@ -316,7 +358,7 @@ class ReconcileController extends Controller
      *
      * @param Outcome $outcome The outcome.
      * @return int The Console colour constant.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     private function _colourFor(Outcome $outcome): int
@@ -338,7 +380,7 @@ class ReconcileController extends Controller
      * @param string[] $headers The column headers.
      * @param array<int, string[]> $rows The rows.
      * @return void
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     private function _writeTable(array $headers, array $rows): void

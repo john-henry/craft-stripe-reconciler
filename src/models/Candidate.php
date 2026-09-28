@@ -15,7 +15,7 @@ use johnhenry\stripereconciler\enums\CandidateType;
  *
  * Produced by discovery, consumed by reconciliation.
  *
- * @author John Henry Donovan
+ * @author John Henry Donovan <info@johnhenry.ie>
  * @since 1.0.0
  */
 class Candidate extends Model
@@ -60,7 +60,7 @@ class Candidate extends Model
      * A cart has no reference, since Commerce assigns one on completion.
      *
      * @return string A human readable identifier for console output and audit rows.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     public function getLabel(): string

@@ -31,6 +31,7 @@
 {% if candidates|length %}
     <div class="sr-scroll">
     <table class="data fullwidth sr-table">
+        <caption class="visually-hidden">{{ 'Outstanding Stripe payments'|t('stripe-reconciler') }}</caption>
         <thead>
             <tr>
                 <th scope="col">{{ 'Order'|t('stripe-reconciler') }}</th>
@@ -52,8 +53,8 @@
                         {% endif %}
                     </td>
                     <td>{{ candidate.type.label() }}</td>
-                    <td>{{ order.email ?? '-' }}</td>
-                    <td>{{ order ? order.totalPrice|commerceCurrency(order.paymentCurrency) : '-' }}</td>
+                    <td>{{ canSeeCustomers ? (order.email ?? '-') : '-' }}</td>
+                    <td>{{ order ? order.totalPrice|commerceCurrency(order.currency) : '-' }}</td>
                     <td data-status>
                         {% if canReconcile %}
                             <button type="button" class="btn small" data-sr-check data-order-id="{{ candidate.orderId }}">
@@ -72,18 +73,16 @@
 
 {% if history|length %}
     <div class="sr-history">
-        <h3>{{ 'Recent attempts'|t('stripe-reconciler') }}</h3>
+        <h3 id="sr-history-heading">{{ 'Recent attempts'|t('stripe-reconciler') }}</h3>
 
         <p class="light">
             {{ 'One row per payment attempt, not per order. Somebody who tried to pay twice leaves two rows, and only the attempt that actually took money can show as completed. A row saying no money was taken stays that way even after the order itself has been sorted out by another payment.'|t('stripe-reconciler') }}
         </p>
 
-        <p class="light sr-stale" hidden data-sr-stale>
-            {{ 'This list was loaded before your last action, so it does not include it yet. Reload the page to bring it up to date.'|t('stripe-reconciler') }}
-        </p>
+        <p class="light sr-stale" role="status" data-sr-stale></p>
 
         <div class="sr-scroll">
-        <table class="data fullwidth">
+        <table class="data fullwidth" aria-labelledby="sr-history-heading">
             <thead>
                 <tr>
                     <th scope="col">{{ 'Order'|t('stripe-reconciler') }}</th>
@@ -111,7 +110,7 @@
                         </td>
                         <td>{{ row.stripeStatus ?? '-' }}</td>
                         <td>{{ row.attempts }}</td>
-                        <td>{{ row.dateLastAttempt|datetime('short') }}</td>
+                        <td>{{ row.dateLastAttempt ? row.dateLastAttempt|datetime('short') : '-' }}</td>
                     </tr>
                 {% endfor %}
             </tbody>

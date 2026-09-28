@@ -13,6 +13,7 @@ return [
     'Nothing outstanding. Every Stripe payment in the last {days} day(s) is accounted for.' => 'Nothing outstanding. Every Stripe payment in the last {days} day(s) is accounted for.',
     'You do not have permission to reconcile payments.' => 'You do not have permission to reconcile payments.',
     'No Stripe gateway is available to check. Add one in Commerce, or widen the enabledGateways setting if it is restricting things.' => 'No Stripe gateway is available to check. Add one in Commerce, or widen the enabledGateways setting if it is restricting things.',
+    'Outstanding Stripe payments' => 'Outstanding Stripe payments',
     'Check them all' => 'Check them all',
     'Check Stripe' => 'Check Stripe',
     'Checking Stripe…' => 'Checking Stripe…',

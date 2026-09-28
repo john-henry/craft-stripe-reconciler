@@ -15,7 +15,7 @@ use yii\base\InvalidConfigException;
  * @property-read DiscoveryService $discovery
  * @property-read NotificationService $notification
  * @property-read ReconciliationService $reconciliation
- * @author John Henry Donovan
+ * @author John Henry Donovan <info@johnhenry.ie>
  * @since 1.0.0
  */
 trait ServicesTrait
@@ -28,7 +28,7 @@ trait ServicesTrait
      * @inheritdoc
      *
      * @return array The plugin configuration, including registered service components.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     public static function config(): array
@@ -52,7 +52,7 @@ trait ServicesTrait
      *
      * @return AuditService The audit service instance.
      * @throws InvalidConfigException If the component cannot be resolved.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     public function getAudit(): AuditService
@@ -68,7 +68,7 @@ trait ServicesTrait
      *
      * @return DiscoveryService The discovery service instance.
      * @throws InvalidConfigException If the component cannot be resolved.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     public function getDiscovery(): DiscoveryService
@@ -84,7 +84,7 @@ trait ServicesTrait
      *
      * @return NotificationService The notification service instance.
      * @throws InvalidConfigException If the component cannot be resolved.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     public function getNotification(): NotificationService
@@ -100,7 +100,7 @@ trait ServicesTrait
      *
      * @return ReconciliationService The reconciliation service instance.
      * @throws InvalidConfigException If the component cannot be resolved.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     public function getReconciliation(): ReconciliationService

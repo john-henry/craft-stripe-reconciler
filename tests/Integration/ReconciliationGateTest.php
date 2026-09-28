@@ -1,89 +1,7 @@
 <?php
 
-use craft\commerce\models\Transaction;
 use johnhenry\stripereconciler\enums\Outcome;
-use johnhenry\stripereconciler\models\Candidate;
-use johnhenry\stripereconciler\services\ReconciliationService;
 use johnhenry\stripereconciler\StripeReconciler;
-
-/**
- * A reconciliation service with a canned Stripe response.
- *
- * `inspect()` is the only point where the service talks to Stripe, so overriding
- * it exercises the real pre-flight decision logic against known PaymentIntent
- * payloads without needing live API credentials.
- */
-class StubReconciliationService extends ReconciliationService
-{
-    /**
-     * @var array<string, mixed>|null The PaymentIntent to return.
-     */
-    public ?array $intent = null;
-
-    /**
-     * @var bool Whether inspect() was reached.
-     */
-    public bool $inspected = false;
-
-    /**
-     * @var string|null An error to throw instead of returning an intent, standing
-     *                  in for Stripe refusing the lookup.
-     */
-    public ?string $throw = null;
-
-    /**
-     * @inheritdoc
-     */
-    public function inspect(Transaction $transaction): ?array
-    {
-        $this->inspected = true;
-
-        if ($this->throw !== null) {
-            throw new RuntimeException($this->throw);
-        }
-
-        return $this->intent;
-    }
-}
-
-/**
- * Builds a candidate from a freshly discovered order.
- *
- * @param int $orderId The order ID.
- * @return Candidate The candidate.
- */
-function discoveredCandidate(int $orderId): Candidate
-{
-    // Lookup by ID bypasses the re-check backoff, so the gate can run twice.
-    foreach (StripeReconciler::$plugin->getDiscovery()->findCandidates(orderId: $orderId) as $candidate) {
-        if ($candidate->orderId === $orderId) {
-            return $candidate;
-        }
-    }
-
-    throw new RuntimeException('Order ' . $orderId . ' was not discovered as a candidate.');
-}
-
-/**
- * Runs the stub service over an order and returns the single result.
- *
- * @param int $orderId The order ID.
- * @param array<string, mixed>|null $intent The canned PaymentIntent.
- * @param bool $dryRun Whether to run as a dry run.
- * @param bool|null $allowCarts Whether completing a cart is permitted, or null to use the setting.
- * @return array{0: johnhenry\stripereconciler\models\ReconciliationResult, 1: StubReconciliationService}
- */
-function runGate(int $orderId, ?array $intent, bool $dryRun = false, ?bool $allowCarts = null): array
-{
-    $service = new StubReconciliationService();
-    $service->intent = $intent;
-
-    $results = $service->reconcile(discoveredCandidate($orderId), $dryRun, $allowCarts);
-
-    expect($results)->toHaveCount(1);
-
-    return [$results[0], $service];
-}
 
 it('refuses to touch Commerce when Stripe says the payment was never made', function() {
     $gatewayId = stripeGatewayId();
@@ -164,10 +82,11 @@ it('never retires a payment that is still settling', function() {
         'id' => 'pi_sepa',
         'status' => 'processing',
         'currency' => 'usd',
+        'amount' => 5000,
         'amount_received' => 0,
     ], dryRun: true);
 
-    expect($result->outcome)->not->toBe(Outcome::Abandoned);
+    expect($result->outcome)->toBe(Outcome::StillProcessing);
 });
 
 it('stops rediscovering a retired payment', function() {
@@ -298,7 +217,7 @@ it('leaves a paid cart alone unless cart reconciliation is enabled', function() 
 
 it('offers a cart for reconciliation when a person asks, even with the setting off', function() {
     $gatewayId = stripeGatewayId();
-    $cart = cartOrder();
+    $cart = cartOrder(total: 50.0);
     seedTransaction($cart->id, $gatewayId);
 
     $settings = StripeReconciler::$plugin->getSettings();
@@ -309,7 +228,7 @@ it('offers a cart for reconciliation when a person asks, even with the setting o
         'id' => 'pi_cp_cart',
         'status' => 'succeeded',
         'currency' => 'usd',
-        'amount_received' => 0,
+        'amount_received' => 5000,
     ], dryRun: true, allowCarts: true);
 
     expect($result->outcome)->toBe(Outcome::DryRun)
@@ -358,7 +277,7 @@ it('records the order total even when it skips the cart', function() {
         ->and($row->stripeAmountReceived)->toBe(6000);
 });
 
-it('leaves the order untouched when only checking, then completes on a second pass', function() {
+it('leaves the order untouched when only checking', function() {
     $gatewayId = stripeGatewayId();
     $order = completedUnpaidOrder(50.0);
     seedTransaction($order->id, $gatewayId);
@@ -378,7 +297,6 @@ it('leaves the order untouched when only checking, then completes on a second pa
     $afterCheck = craft\commerce\elements\Order::find()->id($order->id)->status(null)->one();
     expect($afterCheck->getIsPaid())->toBeFalse();
 
-    // Committing is not exercised here: it calls Stripe for real.
     expect($checked->outcome->isTerminal())->toBeFalse();
 });
 
@@ -537,29 +455,6 @@ it('fails safe when Stripe will not hand over the payment', function() {
     expect($fresh->getIsPaid())->toBeFalse();
 });
 
-it('addresses Stripe by payment intent, never by order id', function() {
-    $gatewayId = stripeGatewayId();
-    $first = completedUnpaidOrder(50.0, 'one@example.test');
-    $second = completedUnpaidOrder(50.0, 'two@example.test');
-
-    $firstTransaction = seedTransaction($first->id, $gatewayId, 'redirect', 'purchase', [
-        'id' => 'pi_site_one',
-        'object' => 'payment_intent',
-    ]);
-    $secondTransaction = seedTransaction($second->id, $gatewayId, 'redirect', 'purchase', [
-        'id' => 'pi_site_two',
-        'object' => 'payment_intent',
-    ]);
-
-    // Stripe is addressed by payment intent, never by order ID.
-    $responses = craft\commerce\Plugin::getInstance()->getTransactions();
-
-    expect(craft\helpers\Json::decodeIfJson($responses->getTransactionById($firstTransaction)->response)['id'])
-        ->toBe('pi_site_one')
-        ->and(craft\helpers\Json::decodeIfJson($responses->getTransactionById($secondTransaction)->response)['id'])
-        ->toBe('pi_site_two');
-});
-
 it('records an error when the PaymentIntent cannot be resolved', function() {
     $gatewayId = stripeGatewayId();
     $order = completedUnpaidOrder();
@@ -570,18 +465,13 @@ it('records an error when the PaymentIntent cannot be resolved', function() {
     expect($result->outcome)->toBe(Outcome::Errored);
 });
 
-it('does not attempt orders that are already paid', function() {
+it('does not attempt an order its own payment already settled', function() {
     $gatewayId = stripeGatewayId();
     $order = paidOrder();
-    seedTransaction($order->id, $gatewayId);
+    $parent = seedTransaction($order->id, $gatewayId);
+    seedTransaction($order->id, $gatewayId, 'success', 'purchase', null, $parent);
 
-    $service = new StubReconciliationService();
-    $service->intent = ['id' => 'pi_x', 'status' => 'succeeded', 'currency' => 'usd', 'amount_received' => 0];
-
-    $results = $service->reconcile(discoveredCandidate($order->id), false);
-
-    expect($results)->toBeEmpty()
-        ->and($service->inspected)->toBeFalse();
+    expect(StripeReconciler::$plugin->getDiscovery()->findCandidates(orderId: $order->id))->toBeEmpty();
 });
 
 it('writes one audit row per transaction and counts repeat attempts', function() {

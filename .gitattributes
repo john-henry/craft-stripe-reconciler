@@ -1,0 +1,12 @@
+/.gitattributes export-ignore
+/.github/ export-ignore
+/.gitignore export-ignore
+/ecs.php export-ignore
+/phpstan.neon export-ignore
+/tests/ export-ignore
+/docs/ export-ignore
+/eslint.config.js export-ignore
+/package.json export-ignore
+/package-lock.json export-ignore
+
+* text=auto

@@ -31,7 +31,7 @@ use yii\base\InvalidConfigException;
  * command or a control panel action. Craft resolves the controller namespaces
  * itself, so neither is wired here.
  *
- * @author John Henry Donovan
+ * @author John Henry Donovan <info@johnhenry.ie>
  * @since 1.0.0
  */
 trait PluginTrait
@@ -46,7 +46,7 @@ trait PluginTrait
      * Narrows the base return type for callers and static analysis.
      *
      * @return SettingsModel The plugin settings model.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     public function getSettings(): SettingsModel
@@ -72,7 +72,7 @@ trait PluginTrait
      *
      * @return void
      * @throws InvalidConfigException If Commerce or the Stripe gateway is unavailable.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     protected function beforeInstall(): void
@@ -109,7 +109,7 @@ trait PluginTrait
      * cached badge count.
      *
      * @return void
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     protected function afterUninstall(): void
@@ -126,14 +126,19 @@ trait PluginTrait
             return;
         }
 
-        $ids = (new Query())
-            ->select(['id'])
+        // The job column is binary, which Postgres won't match with LIKE, so the
+        // serialised jobs are searched here instead.
+        $jobs = (new Query())
+            ->select(['id', 'job'])
             ->from(Table::QUEUE)
-            ->where(['like', 'job', ReconcileOrders::class])
-            ->column();
+            ->all();
 
-        foreach ($ids as $id) {
-            $queue->release((string)$id);
+        foreach ($jobs as $job) {
+            $payload = is_resource($job['job']) ? stream_get_contents($job['job']) : (string)$job['job'];
+
+            if (str_contains($payload, ReconcileOrders::class)) {
+                $queue->release((string)$job['id']);
+            }
         }
     }
 
@@ -141,7 +146,7 @@ trait PluginTrait
      * @inheritdoc
      *
      * @return SettingsModel The plugin settings model.
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     protected function createSettingsModel(): SettingsModel
@@ -160,7 +165,7 @@ trait PluginTrait
      * gates visibility with its own `utility:stripe-reconciler` permission.
      *
      * @return void
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     private function _registerUtilities(): void
@@ -178,7 +183,7 @@ trait PluginTrait
      * Registers audit trail pruning with Craft's garbage collection.
      *
      * @return void
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     private function _registerGarbageCollection(): void
@@ -207,7 +212,7 @@ trait PluginTrait
      * acting on a payment, which moves money.
      *
      * @return void
-     * @author John Henry Donovan
+     * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
      */
     private function _registerPermissions(): void
