@@ -14,6 +14,7 @@ use craft\commerce\elements\Order;
 use craft\commerce\models\Transaction;
 use craft\commerce\Plugin as Commerce;
 use craft\commerce\services\Payments;
+use johnhenry\stripereconciler\console\controllers\ReconcileController;
 use johnhenry\stripereconciler\enums\CandidateType;
 use johnhenry\stripereconciler\enums\Outcome;
 use johnhenry\stripereconciler\jobs\ReconcileOrders;
@@ -21,6 +22,7 @@ use johnhenry\stripereconciler\models\ReconciliationResult;
 use johnhenry\stripereconciler\records\Reconciliation;
 use johnhenry\stripereconciler\StripeReconciler;
 use Stripe\Exception\InvalidRequestException;
+use yii\console\ExitCode;
 
 /**
  * Stands in for Commerce's payment completion.
@@ -62,6 +64,18 @@ function fakePayments(?callable $then = null): FakePayments
     Commerce::getInstance()->set('payments', $fake);
 
     return $fake;
+}
+
+/**
+ * Moves a payment's last audit entry into the past, out of the re-check gap.
+ */
+function ageAuditRow(int $transactionId, string $modifier): void
+{
+    Craft::$app->getDb()->createCommand()->update(
+        Reconciliation::tableName(),
+        ['dateLastAttempt' => craft\helpers\Db::prepareDateForDb((new DateTime())->modify($modifier))],
+        ['transactionId' => $transactionId],
+    )->execute();
 }
 
 /**
@@ -284,6 +298,71 @@ describe('A paid payment', function() {
             ->and($payments->calls)->toBe(1);
     });
 
+    it('stays held back from unattended runs after somebody checks it', function() {
+        $gatewayId = stripeGatewayId();
+        $order = completedUnpaidOrder(50.0);
+        $transactionId = seedTransaction($order->id, $gatewayId);
+        ageTransaction($transactionId, 1);
+        $payments = fakePayments();
+
+        runGate($order->id, paidIntent());
+
+        // Check Stripe in the control panel, and the Check them all job: the
+        // person still gets the Reconcile button, but the failure stays on record.
+        [$checked] = runGate($order->id, paidIntent(), dryRun: true);
+        $row = Reconciliation::findOne(['transactionId' => $transactionId]);
+        ageAuditRow($transactionId, '-2 hours');
+
+        $service = new StubReconciliationService();
+        $service->intent = paidIntent();
+        $again = $service->reconcile(discoveredCandidate($order->id), false, null, respectBackoff: true);
+
+        expect($checked->outcome)->toBe(Outcome::DryRun)
+            ->and($row->outcome)->toBe(Outcome::CompletionFailed->value)
+            ->and($again[0]->outcome)->toBe(Outcome::CompletionFailed)
+            ->and($payments->calls)->toBe(1);
+    });
+
+    it('is reported by an unattended dry run as left for you, not as ready to complete', function() {
+        $gatewayId = stripeGatewayId();
+        $order = completedUnpaidOrder(50.0);
+        $transactionId = seedTransaction($order->id, $gatewayId);
+        ageTransaction($transactionId, 1);
+        fakePayments();
+
+        runGate($order->id, paidIntent());
+        ageAuditRow($transactionId, '-2 hours');
+
+        $service = new StubReconciliationService();
+        $service->intent = paidIntent();
+        $checked = $service->reconcile(discoveredCandidate($order->id), true, null, respectBackoff: true);
+
+        expect($checked[0]->outcome)->toBe(Outcome::CompletionFailed)
+            ->and(Reconciliation::findOne(['transactionId' => $transactionId])->outcome)->toBe(Outcome::CompletionFailed->value);
+    });
+
+    it('is recorded as a failed completion when Commerce throws, and not handed over again unattended', function() {
+        $gatewayId = stripeGatewayId();
+        $order = completedUnpaidOrder(50.0);
+        $transactionId = seedTransaction($order->id, $gatewayId);
+        ageTransaction($transactionId, 1);
+        $payments = fakePayments(function(): void {
+            throw new RuntimeException('Commerce fell over.');
+        });
+
+        [$first] = runGate($order->id, paidIntent());
+        ageAuditRow($transactionId, '-2 hours');
+
+        $service = new StubReconciliationService();
+        $service->intent = paidIntent();
+        $again = $service->reconcile(discoveredCandidate($order->id), false, null, respectBackoff: true);
+
+        expect($first->outcome)->toBe(Outcome::CompletionFailed)
+            ->and($first->outcome->needsNotification())->toBeTrue()
+            ->and($again[0]->outcome)->toBe(Outcome::CompletionFailed)
+            ->and($payments->calls)->toBe(1);
+    });
+
     it('settles a transaction Commerce left in processing, which it will not complete itself', function() {
         $gatewayId = stripeGatewayId();
         $order = completedUnpaidOrder(50.0);
@@ -433,6 +512,29 @@ describe('Unattended runs', function() {
             ->and($results[0]->outcome)->toBe(Outcome::Reconciled);
     });
 
+    it('exit non-zero for a paid cart, including runs that skip it as checked recently', function() {
+        $gatewayId = stripeGatewayId();
+        onlyGateway($gatewayId);
+        $cart = cartOrder(total: 50.0);
+        $transactionId = seedTransaction($cart->id, $gatewayId);
+        ageTransaction($transactionId, 1);
+        $payments = fakePayments(paySuccessfully(...));
+
+        $service = new StubReconciliationService();
+        $service->intent = paidIntent();
+        StripeReconciler::$plugin->set('reconciliation', $service);
+
+        $first = $this->console(ReconcileController::class, 'index');
+        $service->inspected = false;
+        $second = $this->console(ReconcileController::class, 'index');
+
+        expect($first->exitCode)->toBe(ExitCode::UNSPECIFIED_ERROR)
+            ->and($second->exitCode)->toBe(ExitCode::UNSPECIFIED_ERROR)
+            ->and($service->inspected)->toBeFalse()
+            ->and($payments->calls)->toBe(0)
+            ->and(Reconciliation::findOne(['transactionId' => $transactionId])->outcome)->toBe(Outcome::CartSkipped->value);
+    });
+
     it('leave a payment alone for its first few minutes', function() {
         $gatewayId = stripeGatewayId();
         $order = completedUnpaidOrder(50.0);
@@ -479,6 +581,7 @@ describe('The audit trail', function() {
     });
 
     it('keeps rows where money was taken, however old', function() {
+        emptyAuditTable();
         $gatewayId = stripeGatewayId();
         $order = completedUnpaidOrder();
         $transactionId = seedTransaction($order->id, $gatewayId);
@@ -496,6 +599,35 @@ describe('The audit trail', function() {
         )->execute();
 
         expect($audit->prune())->toBe(0);
+    });
+
+    it('keeps an error recorded after Stripe reported the money taken, but clears one where Stripe was never reached', function() {
+        emptyAuditTable();
+        $gatewayId = stripeGatewayId();
+        $order = completedUnpaidOrder();
+        $paid = seedTransaction($order->id, $gatewayId);
+        $unreached = seedTransaction($order->id, $gatewayId);
+        $candidate = discoveredCandidate($order->id);
+        $audit = StripeReconciler::$plugin->getAudit();
+
+        $audit->record($candidate, new ReconciliationResult([
+            'transactionId' => $paid,
+            'outcome' => Outcome::Errored,
+            'stripeStatus' => 'succeeded',
+            'stripeAmountReceived' => 5000,
+        ]));
+        $audit->record($candidate, new ReconciliationResult([
+            'transactionId' => $unreached,
+            'outcome' => Outcome::Errored,
+        ]));
+        ageAuditRow($paid, '-400 days');
+        ageAuditRow($unreached, '-400 days');
+
+        $deleted = $audit->prune();
+
+        expect($deleted)->toBe(1)
+            ->and(Reconciliation::findOne(['transactionId' => $paid]))->not->toBeNull()
+            ->and(Reconciliation::findOne(['transactionId' => $unreached]))->toBeNull();
     });
 });
 

@@ -71,7 +71,7 @@
         var status = document.querySelector('[data-sr-stale]');
 
         if (status) {
-            status.textContent = t('This list was loaded before your last action, so it does not include it yet. Reload the page to bring it up to date.');
+            status.textContent = t('This list does not show what you just did yet. Reload the page to update it.');
         }
     }
 
@@ -182,6 +182,9 @@
 
     /**
      * Wires the "check them all" button. Queues checks; never commits.
+     *
+     * The button stays disabled once the checks are queued, so the same
+     * backlog cannot be queued twice before the page is reloaded.
      */
     function bindCheckAll(button) {
         button.addEventListener('click', function() {
@@ -196,11 +199,11 @@
                     }
 
                     window.Craft.cp.displayNotice(
-                        t('Queued {count} order(s) to check. Reload when the queue has run.', {
+                        t('Queued {count, plural, =1{# order} other{# orders}} to check. Reload the page when the queue has run.', {
                             count: data.queued,
                         })
                     );
-                    reset(button, t('Check them all'));
+                    busy(button, t('Queued'));
                 })
                 .catch(function() {
                     window.Craft.cp.displayError(t('Could not reach the server.'));

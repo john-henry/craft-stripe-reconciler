@@ -265,6 +265,9 @@ enum Outcome: string
     /**
      * Returns whether this outcome warrants a human looking at it.
      *
+     * Any of these makes the console command exit non-zero. A paid cart is one:
+     * the customer has been charged and has no order.
+     *
      * @return bool True if the outcome should be highlighted in console output.
      * @author John Henry Donovan <info@johnhenry.ie>
      * @since 1.0.0
@@ -272,7 +275,7 @@ enum Outcome: string
     public function needsAttention(): bool
     {
         return match ($this) {
-            self::AmountMismatch, self::CompletionFailed, self::Errored, self::RefundedOrDisputed, self::PossibleDoubleCharge => true,
+            self::AmountMismatch, self::CartSkipped, self::CompletionFailed, self::Errored, self::RefundedOrDisputed, self::PossibleDoubleCharge => true,
             default => false,
         };
     }

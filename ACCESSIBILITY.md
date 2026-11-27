@@ -4,7 +4,7 @@ Stripe Reconciler is a plugin for Craft CMS 5. This statement sets out how acces
 
 ## What this covers
 
-This statement covers Stripe Reconciler 1.1.0:
+This statement covers Stripe Reconciler 1.2.0:
 
 - the Stripe Reconciler utility, including its order list and history
 
@@ -20,7 +20,9 @@ WCAG 2.2 level AA. Stripe Reconciler adds to the Craft control panel, which is a
 
 ## How far it meets it
 
-I believe it meets WCAG 2.2 AA. The review found three issues, and this version fixes all of them. It hasn't been tested with assistive technology yet, though, so I'm not claiming full conformance until it has.
+I believe it meets WCAG 2.2 AA. The review of 1.1.0 found three issues, and that version fixed all of them. It hasn't been tested with assistive technology yet, though, so I'm not claiming full conformance until it has.
+
+1.2.0 changed the utility: it no longer repeats its own title above the list, the Recent attempts table was laid out again to fit a laptop-width window, and some counts and messages were reworded. Those changes haven't been reviewed yet.
 
 ## How it was checked
 
@@ -39,4 +41,4 @@ If something in Stripe Reconciler is hard or impossible for you to use, open an 
 
 ## Last reviewed
 
-27 September 2026, for version 1.1.0.
+27 September 2026, for version 1.1.0. The 1.2.0 changes to the utility haven't been reviewed yet.

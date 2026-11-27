@@ -123,6 +123,23 @@ function onlyGateway(int $gatewayId): void
 }
 
 /**
+ * Empties the audit table for the duration of a test.
+ *
+ * Pruning works across the whole table, so a test asserting on what it deleted
+ * is otherwise coupled to any rows already in the test database, and fails once
+ * those rows age past the retention window. The delete runs inside the test's
+ * transaction, so it is rolled back with everything else.
+ *
+ * @return void
+ */
+function emptyAuditTable(): void
+{
+    Craft::$app->getDb()->createCommand()
+        ->delete('{{%stripereconciler_reconciliations}}')
+        ->execute();
+}
+
+/**
  * Inserts a Stripe gateway directly into the gateways table.
  *
  * Commerce's own `saveGateway()` writes to project config, and a project config
@@ -428,3 +445,13 @@ function runGate(int $orderId, ?array $intent, bool $dryRun = false, ?bool $allo
 
     return [$results[0], $service];
 }
+
+// craft-pest exports the debug toolbar's log target after every test, and that
+// target holds every message since the process started, so each export
+// re-serialises the whole run. Nothing here benchmarks.
+uses()->beforeEach(function() {
+    if (\craft\debug\Module::getInstance() !== null) {
+        unset(\Craft::$app->getLog()->targets['debug']);
+        \craft\debug\Module::setInstance(null);
+    }
+})->in('Integration');
