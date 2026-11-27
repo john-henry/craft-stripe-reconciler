@@ -12,6 +12,7 @@ use craft\helpers\Console;
 use craft\helpers\DateTimeHelper;
 use johnhenry\stripereconciler\enums\Outcome;
 use johnhenry\stripereconciler\models\Candidate;
+use johnhenry\stripereconciler\models\ReconciliationResult;
 use johnhenry\stripereconciler\StripeReconciler;
 use Throwable;
 use yii\base\InvalidConfigException;
@@ -49,12 +50,12 @@ class ReconcileController extends Controller
     public ?int $lookbackDays = null;
 
     /**
-     * @var int|null Restrict to a single gateway ID.
+     * @var int|null Restrict to a single gateway ID. With forget, only rows recorded against it.
      */
     public ?int $gateway = null;
 
     /**
-     * @var int|null Restrict to a single order ID, ignoring the lookback window.
+     * @var int|null Restrict to a single order ID. Reconcile and report ignore the lookback window for it.
      */
     public ?int $orderId = null;
 
@@ -62,6 +63,16 @@ class ReconcileController extends Controller
      * @var int|null Stop after this many candidates.
      */
     public ?int $limit = null;
+
+    /**
+     * @var int|null Forget the audit row for this Commerce transaction ID.
+     */
+    public ?int $transactionId = null;
+
+    /**
+     * @var string|null Forget audit rows with this stored outcome, such as abandoned or missingAtStripe.
+     */
+    public ?string $outcome = null;
 
     // =========================================================================
     // Public Methods
@@ -92,6 +103,13 @@ class ReconcileController extends Controller
 
         if ($actionID === 'history') {
             $options[] = 'limit';
+        }
+
+        if ($actionID === 'forget') {
+            $options[] = 'orderId';
+            $options[] = 'transactionId';
+            $options[] = 'outcome';
+            $options[] = 'gateway';
         }
 
         return $options;
@@ -197,6 +215,83 @@ class ReconcileController extends Controller
         return ExitCode::OK;
     }
 
+    /**
+     * Deletes stored audit rows so the next run looks at those payments again.
+     *
+     * Only the plugin's own audit rows are deleted. Commerce orders and
+     * transactions are never touched. At least one selector is required, and the
+     * matching rows are shown and confirmed before anything is deleted.
+     *
+     * @return int The exit code.
+     * @throws InvalidConfigException If a plugin service cannot be resolved.
+     * @author John Henry Donovan <info@johnhenry.ie>
+     * @since 1.2.0
+     */
+    public function actionForget(): int
+    {
+        if ($this->orderId === null && $this->transactionId === null && $this->outcome === null && $this->gateway === null) {
+            $this->stderr(
+                'Name the rows to forget with at least one of --orderId, --transactionId, --outcome or --gateway.' . PHP_EOL,
+                Console::FG_RED,
+            );
+
+            return ExitCode::USAGE;
+        }
+
+        if ($this->outcome !== null && Outcome::tryFrom($this->outcome) === null) {
+            $this->stderr(sprintf(
+                '"%s" is not a stored outcome. Use one of: %s.' . PHP_EOL,
+                $this->outcome,
+                implode(', ', array_map(static fn(Outcome $case): string => $case->value, Outcome::cases())),
+            ), Console::FG_RED);
+
+            return ExitCode::USAGE;
+        }
+
+        $audit = StripeReconciler::$plugin->getAudit();
+        $rows = $audit->findMatching(
+            orderId: $this->orderId,
+            transactionId: $this->transactionId,
+            outcome: $this->outcome,
+            gatewayId: $this->gateway,
+        );
+
+        if ($rows === []) {
+            $this->stdout('No audit rows match, so there is nothing to forget.' . PHP_EOL, Console::FG_GREEN);
+
+            return ExitCode::OK;
+        }
+
+        $formatter = Craft::$app->getFormatter();
+
+        $table = array_map(static fn(array $row): array => [
+            (string)($row['orderReference'] ?? $row['orderShortNumber'] ?? ('#' . ($row['orderId'] ?? '?'))),
+            (string)$row['transactionId'],
+            Outcome::labelFor($row['outcome'] ?? null) . ' (' . $row['outcome'] . ')',
+            (string)($row['stripeStatus'] ?? '-'),
+            $formatter->asDatetime(DateTimeHelper::toDateTime($row['dateLastAttempt']), 'short'),
+        ], $rows);
+
+        $this->stdout(count($rows) . ' audit row(s) match:' . PHP_EOL . PHP_EOL);
+        $this->_writeTable(['Order', 'Transaction', 'What happened', 'Stripe said', 'Last checked'], $table);
+        $this->stdout(
+            PHP_EOL . 'The next run looks at these payments again, and any of them can be emailed about again.'
+            . ' Your orders and transactions are not changed.' . PHP_EOL . PHP_EOL,
+        );
+
+        if (!$this->confirm('Forget ' . count($rows) . ' audit row(s)?')) {
+            $this->stdout('Nothing forgotten.' . PHP_EOL);
+
+            return ExitCode::OK;
+        }
+
+        $deleted = $audit->forget($rows);
+
+        $this->stdout('Forgot ' . $deleted . ' audit row(s).' . PHP_EOL, Console::FG_GREEN);
+
+        return ExitCode::OK;
+    }
+
     // =========================================================================
     // Private Methods
     // =========================================================================
@@ -229,6 +324,7 @@ class ReconcileController extends Controller
         ));
 
         $reconciliation = StripeReconciler::$plugin->getReconciliation();
+        $audit = StripeReconciler::$plugin->getAudit();
         $tally = [];
         $attention = 0;
         $backedOff = 0;
@@ -246,6 +342,15 @@ class ReconcileController extends Controller
                 $this->stderr('  ' . $candidate->getLabel() . ': ' . $e->getMessage() . PHP_EOL, Console::FG_RED);
                 $attention++;
                 continue;
+            }
+
+            // A payment skipped by the backoff still counts while its last answer
+            // needs a person, so the exit code holds between checks.
+            if (!$this->_resolvesOrder($results)) {
+                $attention += $audit->countNeedingAttention(array_values(array_diff(
+                    $candidate->transactionIds,
+                    array_map(static fn(ReconciliationResult $result): int => $result->transactionId, $results),
+                )));
             }
 
             // Empty means every payment on this order was skipped by the backoff.
@@ -287,7 +392,6 @@ class ReconcileController extends Controller
         // Only the console notifies; control panel actions show the answer inline.
         // A dry run notifies too: a refund or double charge it finds is final, so
         // no later run would mention it.
-        $audit = StripeReconciler::$plugin->getAudit();
         $notifiable = $audit->filterUnnotified($notifiable);
 
         if (StripeReconciler::$plugin->getNotification()->sendDigest($notifiable)) {
@@ -351,6 +455,25 @@ class ReconcileController extends Controller
         }
 
         return $candidates;
+    }
+
+    /**
+     * Returns whether any of a candidate's results reconciled the order.
+     *
+     * @param ReconciliationResult[] $results The results for one candidate.
+     * @return bool True if the order is now settled.
+     * @author John Henry Donovan <info@johnhenry.ie>
+     * @since 1.2.0
+     */
+    private function _resolvesOrder(array $results): bool
+    {
+        foreach ($results as $result) {
+            if ($result->outcome === Outcome::Reconciled) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

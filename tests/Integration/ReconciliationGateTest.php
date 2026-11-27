@@ -371,6 +371,7 @@ it('records the reference an order ends up with, not the one it started without'
 });
 
 it('prunes old unpaid audit rows but never a reconciled one', function() {
+    emptyAuditTable();
     $gatewayId = stripeGatewayId();
     $order = completedUnpaidOrder();
     $old = seedTransaction($order->id, $gatewayId);
@@ -412,6 +413,7 @@ it('prunes old unpaid audit rows but never a reconciled one', function() {
 });
 
 it('never prunes more aggressively than the lookback window', function() {
+    emptyAuditTable();
     $gatewayId = stripeGatewayId();
     $order = completedUnpaidOrder();
     $transactionId = seedTransaction($order->id, $gatewayId);

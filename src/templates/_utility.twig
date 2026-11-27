@@ -1,9 +1,7 @@
-<h2>{{ 'Stripe Reconciler'|t('stripe-reconciler') }}</h2>
-
 <div class="sr-summary">
     {% if candidates|length %}
         <p>
-            {{ 'Stripe has {count} payment(s) that never finished in Commerce. Nothing below has been checked against Stripe yet: use the buttons to do that.'|t('stripe-reconciler', { count: candidates|length }) }}
+            {{ 'Stripe has {count, plural, =1{# payment} other{# payments}} that never finished in Commerce. None of these has been checked with Stripe yet.'|t('stripe-reconciler', { count: candidates|length }) }}
         </p>
         {% if canReconcile %}
             <button type="button" class="btn submit" data-sr-check-all>
@@ -23,7 +21,7 @@
         </p>
     {% else %}
         <p class="zilch small">
-            {{ 'Nothing outstanding. Every Stripe payment in the last {days} day(s) is accounted for.'|t('stripe-reconciler', { days: settings.lookbackDays }) }}
+            {{ 'Nothing outstanding. Every Stripe payment in the last {days, plural, =1{day} other{# days}} is accounted for.'|t('stripe-reconciler', { days: settings.lookbackDays }) }}
         </p>
     {% endif %}
 </div>
@@ -73,10 +71,10 @@
 
 {% if history|length %}
     <div class="sr-history">
-        <h3 id="sr-history-heading">{{ 'Recent attempts'|t('stripe-reconciler') }}</h3>
+        <h2 id="sr-history-heading">{{ 'Recent attempts'|t('stripe-reconciler') }}</h2>
 
         <p class="light">
-            {{ 'One row per payment attempt, not per order. Somebody who tried to pay twice leaves two rows, and only the attempt that actually took money can show as completed. A row saying no money was taken stays that way even after the order itself has been sorted out by another payment.'|t('stripe-reconciler') }}
+            {{ 'One row per payment attempt, not per order. A customer who tried to pay twice leaves two rows, and only the attempt that took money shows as completed. A row saying no money was taken keeps saying so, even after another payment has paid the order.'|t('stripe-reconciler') }}
         </p>
 
         <p class="light sr-stale" role="status" data-sr-stale></p>
@@ -104,13 +102,13 @@
                                 {{ label }}
                             {% endif %}
                         </td>
-                        <td class="sr-payment code nowrap" title="{{ row.paymentIntentId ?? '' }}">{{ row.paymentIntentId ?? '-' }}</td>
-                        <td class="nowrap">
+                        <td class="code nowrap"><span class="sr-payment" title="{{ row.paymentIntentId ?? '' }}">{{ row.paymentIntentId ?? '-' }}</span></td>
+                        <td>
                             <span class="status {{ row.outcomeColour }}"></span>{{ row.outcomeLabel }}
                         </td>
                         <td>{{ row.stripeStatus ?? '-' }}</td>
                         <td>{{ row.attempts }}</td>
-                        <td>{{ row.dateLastAttempt ? row.dateLastAttempt|datetime('short') : '-' }}</td>
+                        <td class="nowrap">{{ row.dateLastAttempt ? row.dateLastAttempt|datetime('short') : '-' }}</td>
                     </tr>
                 {% endfor %}
             </tbody>

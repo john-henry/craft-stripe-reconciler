@@ -59,11 +59,12 @@ class StripeReconciler extends BasePlugin
         'Check them all',
         'Checking Stripe…',
         'Could not reach the server.',
-        'Queued {count} order(s) to check. Reload when the queue has run.',
+        'Queued',
+        'Queued {count, plural, =1{# order} other{# orders}} to check. Reload the page when the queue has run.',
         'Queueing…',
         'Reconcile this order',
         'Reconciling…',
-        'This list was loaded before your last action, so it does not include it yet. Reload the page to bring it up to date.',
+        'This list does not show what you just did yet. Reload the page to update it.',
     ];
 
     // =========================================================================

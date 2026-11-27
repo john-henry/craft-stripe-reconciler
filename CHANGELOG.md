@@ -1,5 +1,23 @@
 # Release Notes for Stripe Reconciler
 
+## 1.2.0 - 2026-11-27
+
+### Added
+- A `stripe-reconciler/reconcile/forget` command, so a payment that was closed wrongly can be looked at again without going into the database.
+
+### Changed
+- Counts in the utility and the notification email subject read "1 payment" or "3 payments" instead of "payment(s)".
+- The utility no longer repeats its own title above the list.
+
+### Fixed
+- "Check them all" can no longer queue the same backlog twice before the page is reloaded.
+- The Recent attempts table now fits a laptop-width window instead of hiding the Last checked column.
+- A paid cart waiting for you now makes the console command exit non-zero.
+- The console command keeps exiting non-zero while a payment needs you, including runs that skip it because it was checked recently.
+- Checking a payment Commerce couldn't complete no longer lets the next automatic run try to complete it again.
+- A payment Commerce hit an error completing now shows as "Could not complete", goes in the notification email, and waits for you instead of being retried.
+- Audit rows for payments Stripe took money for are no longer cleared after the retention period when they recorded an error.
+
 ## 1.1.0 - 2026-09-25 [CRITICAL]
 
 ### Security

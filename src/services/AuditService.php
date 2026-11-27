@@ -78,6 +78,32 @@ class AuditService extends Component
     }
 
     /**
+     * Returns how many of the given transactions were last recorded with an
+     * outcome that needs a person.
+     *
+     * @param int[] $transactionIds The transactions being considered.
+     * @return int How many of them are waiting on somebody.
+     * @author John Henry Donovan <info@johnhenry.ie>
+     * @since 1.2.0
+     */
+    public function countNeedingAttention(array $transactionIds): int
+    {
+        if ($transactionIds === []) {
+            return 0;
+        }
+
+        $outcomes = Reconciliation::find()
+            ->select(['outcome'])
+            ->where(['transactionId' => $transactionIds])
+            ->column();
+
+        return count(array_filter(
+            $outcomes,
+            static fn(mixed $value): bool => Outcome::tryFrom((string)$value)?->needsAttention() ?? false,
+        ));
+    }
+
+    /**
      * Returns which of the given transactions were checked against Stripe recently.
      *
      * Rate limits unattended runs only. Never used to filter what is displayed. A
@@ -203,7 +229,9 @@ class AuditService extends Component
      * Deletes audit rows for payments that took no money and are long past.
      *
      * Rows where Stripe took money are never deleted, whatever the retention
-     * period, since past the lookback window they're the only record of it.
+     * period, since past the lookback window they're the only record of it. That
+     * includes an error recorded after Stripe reported the payment as paid, which
+     * is why the Stripe status is checked as well as the outcome.
      *
      * The cutoff is `max(auditRetentionDays, lookbackDays)`. A shorter cutoff would
      * delete rows whose transactions are still discoverable, causing them to be
@@ -229,8 +257,81 @@ class AuditService extends Component
                     Outcome::MissingAtStripe->value,
                 ]],
                 ['<', 'dateLastAttempt', $cutoff],
+                ['or', ['stripeStatus' => null], ['not', ['stripeStatus' => ReconciliationService::PAID_STATUSES]]],
             ])
             ->execute();
+    }
+
+    /**
+     * Returns the audit rows matching every given selector.
+     *
+     * Returns nothing when no selector is given, so a missing filter can never
+     * select the whole table.
+     *
+     * @param int|null $orderId Only rows for this order.
+     * @param int|null $transactionId Only the row for this transaction.
+     * @param string|null $outcome Only rows with this stored outcome value.
+     * @param int|null $gatewayId Only rows recorded against this gateway.
+     * @return array<int, array<string, mixed>> The rows, newest attempt first.
+     * @author John Henry Donovan <info@johnhenry.ie>
+     * @since 1.2.0
+     */
+    public function findMatching(
+        ?int $orderId = null,
+        ?int $transactionId = null,
+        ?string $outcome = null,
+        ?int $gatewayId = null,
+    ): array {
+        $condition = array_filter([
+            'orderId' => $orderId,
+            'transactionId' => $transactionId,
+            'outcome' => $outcome,
+            'gatewayId' => $gatewayId,
+        ], static fn(mixed $value): bool => $value !== null);
+
+        if ($condition === []) {
+            return [];
+        }
+
+        return Reconciliation::find()
+            ->where($condition)
+            ->orderBy(['dateLastAttempt' => SORT_DESC])
+            ->asArray()
+            ->all();
+    }
+
+    /**
+     * Deletes audit rows so the payments they record are looked at again.
+     *
+     * Deleting a row also forgets which outcome was last emailed, so the payment
+     * can be emailed about again. Only this plugin's table is written to.
+     *
+     * @param array<int, array<string, mixed>> $rows Rows as returned by findMatching().
+     * @return int How many rows were deleted.
+     * @author John Henry Donovan <info@johnhenry.ie>
+     * @since 1.2.0
+     */
+    public function forget(array $rows): int
+    {
+        $ids = array_map(static fn(array $row): int => (int)$row['id'], $rows);
+
+        if ($ids === []) {
+            return 0;
+        }
+
+        $deleted = Reconciliation::deleteAll(['id' => $ids]);
+
+        foreach ($rows as $row) {
+            Craft::info(sprintf(
+                'Forgot the audit row for transaction %d on order %s (outcome "%s", Stripe status "%s").',
+                (int)$row['transactionId'],
+                (string)($row['orderReference'] ?? $row['orderShortNumber'] ?? ('#' . ($row['orderId'] ?? '?'))),
+                (string)$row['outcome'],
+                (string)($row['stripeStatus'] ?? '-'),
+            ), 'stripe-reconciler');
+        }
+
+        return $deleted;
     }
 
     /**

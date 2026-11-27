@@ -9,13 +9,15 @@ A customer pays by card, the money leaves their account, and then they close the
 
 Stripe Reconciler finds those payments, checks each one with Stripe, and finishes the job Commerce would have finished if the browser had come back.
 
-## What it actually does
+## What it does
 
-It looks for Stripe transactions that never reached a final state, asks Stripe what really happened to each one, and completes the ones that genuinely succeeded.
+It looks for Stripe transactions that never reached a final state, asks Stripe what really happened to each one, and completes the ones that went through.
 
-The important word there is "asks". Every decision comes from a live PaymentIntent fetched from Stripe at the moment the command runs. Nothing is inferred from what is sitting in your database. An order cannot be marked paid unless Stripe confirms the money arrived, and if Stripe says the payment was never made, the plugin says so and leaves your data alone.
+Every decision comes from a live PaymentIntent fetched from Stripe at the moment the check runs, never from what is sitting in your database. An order cannot be marked paid unless Stripe confirms the money arrived, and if Stripe says the payment was never made, the plugin says so and leaves your data alone.
 
-The rule it works to is a simple one: do exactly what Commerce would have done if the customer's browser had returned to the redirect URL, and nothing more.
+It does exactly what Commerce would have done if the customer's browser had come back to the redirect URL, and nothing more.
+
+If Commerce throws an error completing a payment, the plugin marks it "Could not complete", puts it in the notification email, and leaves it for you rather than trying it again on every run. And if a payment was closed off when it shouldn't have been, the `stripe-reconciler/reconcile/forget` command clears what the plugin recorded about it, so the next run looks at it again.
 
 ## Documentation
 

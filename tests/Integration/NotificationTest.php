@@ -19,6 +19,10 @@ function digestItem(Outcome $outcome): array
     ];
 }
 
+it('treats a paid cart as needing a person', function() {
+    expect(Outcome::CartSkipped->needsAttention())->toBeTrue();
+});
+
 it('says nothing about a checkout where no money was taken', function() {
     expect(Outcome::NotPaidAtStripe->needsNotification())->toBeFalse()
         ->and(Outcome::Abandoned->needsNotification())->toBeFalse();

@@ -2,7 +2,7 @@
   "name": "johnhenry/craft-stripe-reconciler",
   "description": "Finds Stripe payments that went through but never finished in Craft Commerce, checks them with Stripe and completes the orders.",
   "type": "craft-plugin",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "keywords": [
     "craft-commerce",
     "stripe",

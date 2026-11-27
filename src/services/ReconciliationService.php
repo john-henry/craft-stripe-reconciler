@@ -93,7 +93,7 @@ class ReconciliationService extends Component
      * at the first one that would.
      *
      * @param Candidate $candidate The candidate to reconcile.
-     * @param bool $dryRun When true, inspect Stripe but change nothing.
+     * @param bool $dryRun When true, inspect Stripe but leave Commerce alone.
      * @param bool|null $allowCarts Whether completing a cart is permitted, or null to use the
      *                              `reconcileCarts` setting. Control panel actions pass true.
      * @param bool $respectBackoff Whether to skip payments checked within `recheckAfterMinutes`,
@@ -136,15 +136,18 @@ class ReconciliationService extends Component
 
         // Commerce adds a transaction each time it's asked to complete a payment,
         // so an unattended run never asks twice about one it couldn't complete.
-        $failedBefore = $respectBackoff
-            ? array_flip(StripeReconciler::$plugin->getAudit()->getTransactionIdsWithOutcome($transactionIds, Outcome::CompletionFailed))
-            : [];
+        $failedBefore = array_flip(StripeReconciler::$plugin->getAudit()->getTransactionIdsWithOutcome($transactionIds, Outcome::CompletionFailed));
 
         foreach ($transactionIds as $transactionId) {
-            $result = $this->_reconcileTransaction($candidate, $transactionId, $dryRun, $allowCarts, isset($failedBefore[$transactionId]));
+            $hasFailed = isset($failedBefore[$transactionId]);
+            $result = $this->_reconcileTransaction($candidate, $transactionId, $dryRun, $allowCarts, $respectBackoff && $hasFailed);
             $results[] = $result;
 
-            StripeReconciler::$plugin->getAudit()->record($candidate, $result);
+            // A check never replaces a failed completion in the audit trail, since
+            // that row is what stops unattended runs asking Commerce again.
+            if (!($hasFailed && $result->outcome === Outcome::DryRun)) {
+                StripeReconciler::$plugin->getAudit()->record($candidate, $result);
+            }
 
             if ($result->outcome === Outcome::Reconciled || $result->outcome === Outcome::DryRun) {
                 break;
@@ -237,7 +240,7 @@ class ReconciliationService extends Component
      *
      * @param Candidate $candidate The owning candidate.
      * @param int $transactionId The Commerce transaction ID.
-     * @param bool $dryRun When true, inspect Stripe but change nothing.
+     * @param bool $dryRun When true, inspect Stripe but leave Commerce alone.
      * @param bool $allowCarts Whether completing a cart is permitted.
      * @param bool $failedBefore Whether an unattended run already failed to complete it.
      * @return ReconciliationResult What happened.
@@ -359,6 +362,16 @@ class ReconciliationService extends Component
             return $result;
         }
 
+        // Ahead of the dry run, so an unattended check reports what the real run
+        // would do with it.
+        if ($failedBefore) {
+            $result->outcome = Outcome::CompletionFailed;
+            $result->message = 'Stripe confirmed the payment but Commerce did not mark the order paid last time. '
+                . 'It is not retried automatically; complete it from the control panel once the cause is sorted.';
+
+            return $result;
+        }
+
         if ($dryRun) {
             $result->outcome = Outcome::DryRun;
             $result->message = match (true) {
@@ -366,14 +379,6 @@ class ReconciliationService extends Component
                 $isCart => 'Stripe reports "' . $status . '" and the amount matches. This is still a cart, so reconciling will create the order and mark it paid.',
                 default => 'Stripe reports "' . $status . '" and the amount matches. This order would be marked paid.',
             };
-
-            return $result;
-        }
-
-        if ($failedBefore) {
-            $result->outcome = Outcome::CompletionFailed;
-            $result->message = 'Stripe confirmed the payment but Commerce did not mark the order paid last time. '
-                . 'It is not retried automatically; complete it from the control panel once the cause is sorted.';
 
             return $result;
         }
@@ -525,7 +530,9 @@ class ReconciliationService extends Component
         } catch (Throwable $e) {
             Craft::error('completePayment() failed for transaction ' . $transaction->id . ': ' . $e->getMessage(), 'stripe-reconciler');
 
-            $result->outcome = Outcome::Errored;
+            // Stripe has the money, so this is a failed completion rather than an
+            // error: it's kept, notified, and not handed to Commerce again unattended.
+            $result->outcome = Outcome::CompletionFailed;
             $result->message = 'Commerce could not complete the payment. The details are in the logs.';
 
             return $result;
@@ -576,7 +583,7 @@ class ReconciliationService extends Component
         } catch (Throwable $e) {
             Craft::error('Could not settle transaction ' . $transaction->id . ': ' . $e->getMessage(), 'stripe-reconciler');
 
-            $result->outcome = Outcome::Errored;
+            $result->outcome = Outcome::CompletionFailed;
             $result->message = 'Commerce could not complete the payment. The details are in the logs.';
 
             return $result;

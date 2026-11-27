@@ -30,10 +30,13 @@
 
 /**
  * Clipped visually only: the full reference stays in the markup, so it copies
- * whole. The title attribute shows it on hover.
+ * whole. The title attribute shows it on hover. A table cell ignores max-width,
+ * so the clip sits on an inline-block inside it.
  */
 .sr-payment {
+    display: inline-block;
     max-width: 14ch;
+    vertical-align: bottom;
     overflow: hidden;
     text-overflow: ellipsis;
 }
@@ -52,4 +55,11 @@
  */
 .sr-stale:empty {
     margin: 0;
+}
+
+/**
+ * Fixed-width digits so totals, counts and dates line up down each column.
+ */
+.sr-scroll td {
+    font-variant-numeric: tabular-nums;
 }

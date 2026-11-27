@@ -82,7 +82,7 @@ class NotificationService extends Component
     {
         $site = Craft::$app->getSites()->getPrimarySite()->getName();
 
-        return Craft::t('stripe-reconciler', '{count} Stripe payment(s) need attention on {site}', [
+        return Craft::t('stripe-reconciler', '{count, plural, =1{# Stripe payment needs} other{# Stripe payments need}} attention on {site}', [
             'count' => $count,
             'site' => $site,
         ]);
